@@ -19,7 +19,8 @@ import {
   serverTimestamp,
   writeBatch,
   orderBy,
-  limit
+  limit,
+  updateDoc
 } from 'firebase/firestore';
 import { 
   Calendar as CalendarIcon, ChevronLeft, ChevronRight, Plus, Trash2, User, LogOut, Lock, Loader2, 
@@ -145,132 +146,272 @@ const GateScreen = ({ onLoginSuccess }) => {
   );
 };
 
-// 2. Admin Dashboard
+// 2. Admin Dashboard (updated) + EditInstrumentModal + Notes
+const EditInstrumentModal = ({ open, onClose, instrument, onSave }) => {
+  const [name, setName] = useState(instrument?.name || '');
+  const [location, setLocation] = useState(instrument?.location || '');
+  const [description, setDescription] = useState(instrument?.description || '');
+  const [colorId, setColorId] = useState(instrument?.colorId || 'blue');
+
+  useEffect(() => {
+    if (instrument) {
+      setName(instrument.name || '');
+      setLocation(instrument.location || '');
+      setDescription(instrument.description || '');
+      setColorId(instrument.colorId || 'blue');
+    }
+  }, [instrument]);
+
+  if (!open) return null;
+
+  return (
+    <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center">
+      <div className="bg-white rounded-xl shadow-xl w-full max-w-lg p-6">
+        <h3 className="text-lg font-semibold mb-4">Edit Instrument</h3>
+        <div className="space-y-3">
+          <div>
+            <label className="text-sm text-slate-600">Name</label>
+            <input className="w-full border rounded-md px-3 py-2" value={name} onChange={e=>setName(e.target.value)} />
+          </div>
+          <div>
+            <label className="text-sm text-slate-600">Location</label>
+            <input className="w-full border rounded-md px-3 py-2" value={location} onChange={e=>setLocation(e.target.value)} />
+          </div>
+          <div>
+            <label className="text-sm text-slate-600">Description</label>
+            <textarea className="w-full border rounded-md px-3 py-2" rows={4} value={description} onChange={e=>setDescription(e.target.value)} />
+          </div>
+          <div>
+            <label className="text-sm text-slate-600">Color</label>
+            <input className="w-full border rounded-md px-3 py-2" value={colorId} onChange={e=>setColorId(e.target.value)} />
+          </div>
+        </div>
+        <div className="mt-6 flex justify-end gap-2">
+          <button className="px-4 py-2 rounded-md bg-slate-100" onClick={onClose}>Cancel</button>
+          <button className="px-4 py-2 rounded-md bg-blue-600 text-white" onClick={() => onSave({ name, location, description, colorId })}>Save changes</button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
 const AdminDashboard = ({ labName, onLogout }) => {
   const [instruments, setInstruments] = useState([]);
   const [logs, setLogs] = useState([]);
-  const [activeTab, setActiveTab] = useState('INSTRUMENTS'); 
+  const [notes, setNotes] = useState([]);
+  const [activeTab, setActiveTab] = useState('INSTRUMENTS');
   const [showAddModal, setShowAddModal] = useState(false);
+  const [editing, setEditing] = useState(null);
 
   useEffect(() => {
-    const qInst = query(collection(db, 'artifacts', appId, 'public', 'data', 'instruments'), where('labName', '==', labName));
-    const unsubInst = onSnapshot(qInst, (snap) => setInstruments(snap.docs.map(d => ({ id: d.id, ...d.data() }))));
-    const qLogs = query(collection(db, 'artifacts', appId, 'public', 'data', 'logs'), where('labName', '==', labName), orderBy('timestamp', 'desc'), limit(50));
-    const unsubLogs = onSnapshot(qLogs, (snap) => setLogs(snap.docs.map(d => ({ id: d.id, ...d.data() }))));
-    return () => { unsubInst(); unsubLogs(); };
+    // instruments
+    const qInst = query(
+      collection(db, 'artifacts', appId, 'public', 'data', 'instruments'),
+      where('labName', '==', labName)
+    );
+    const unsubInst = onSnapshot(qInst, (snap) =>
+      setInstruments(snap.docs.map(d => ({ id: d.id, ...d.data() })))
+    );
+
+    // logs (path + index fix)
+    const qLogs = query(
+      collection(db, 'artifacts', appId, 'public', 'data', 'logs'),
+      where('labName', '==', labName),
+      orderBy('timestamp', 'desc'),
+      limit(200)
+    );
+    const unsubLogs = onSnapshot(qLogs, (snap) =>
+      setLogs(snap.docs.map(d => ({ id: d.id, ...d.data() })))
+    );
+
+    // condition notes
+    const qNotes = query(
+      collection(db, 'artifacts', appId, 'public', 'data', 'notes'),
+      where('labName', '==', labName),
+      orderBy('createdAt', 'desc'),
+      limit(200)
+    );
+    const unsubNotes = onSnapshot(qNotes, (snap) =>
+      setNotes(snap.docs.map(d => ({ id: d.id, ...d.data() })))
+    );
+
+    return () => { unsubInst(); unsubLogs(); unsubNotes(); };
   }, [labName]);
 
-  const handleAddInstrument = async (data) => {
-    await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'instruments'), { labName, ...data, createdAt: serverTimestamp() });
-    await addAuditLog(labName, 'ADD_INST', `Add Device: ${data.name}`, 'Admin');
-    setShowAddModal(false);
+  const handleSaveEdit = async (payload) => {
+    if (!editing) return;
+    const ref = doc(db, 'artifacts', appId, 'public', 'data', 'instruments', editing.id);
+    await updateDoc(ref, { ...payload, updatedAt: serverTimestamp() });
+    await addAuditLog(labName, 'instrument.edit', `Edited instrument: ${payload.name}`, 'ADMIN');
+    setEditing(null);
   };
-  const handleDeleteInstrument = async (id, name) => {
-    if(!confirm(`Delete ${name}?`)) return;
-    await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'instruments', id));
-    await addAuditLog(labName, 'DEL_INST', `Delete Device: ${name}`, 'Admin');
+
+  const markNoteResolved = async (note) => {
+    const ref = doc(db, 'artifacts', appId, 'public', 'data', 'notes', note.id);
+    await updateDoc(ref, { status: 'RESOLVED', resolvedAt: serverTimestamp() });
+    await addAuditLog(labName, 'note.resolve', `Resolved note for ${note.instrumentName}`, 'ADMIN');
   };
 
   return (
-    <div className="min-h-screen bg-slate-100 font-sans">
-        <header className="bg-slate-800 text-white px-6 py-4 flex justify-between items-center sticky top-0 z-50 shadow-md">
-            <div className="flex items-center gap-3"><div className="bg-slate-700 p-2 rounded-lg"><ShieldCheck className="w-6 h-6 text-yellow-400"/></div><div><h1 className="font-bold text-lg leading-tight">{labName}</h1><p className="text-xs text-slate-400">Admin Dashboard</p></div></div>
-            <button onClick={onLogout} className="text-slate-300 hover:text-white flex items-center gap-2 text-sm"><LogOut className="w-4 h-4"/> Logout</button>
-        </header>
-        <div className="p-6 max-w-5xl mx-auto">
-            <div className="flex gap-4 mb-6">
-                <button onClick={()=>setActiveTab('INSTRUMENTS')} className={`flex-1 p-4 rounded-2xl flex items-center justify-center gap-3 transition font-bold ${activeTab==='INSTRUMENTS'?'bg-white shadow-lg text-slate-800':'bg-slate-200 text-slate-500 hover:bg-slate-300'}`}><Settings className="w-5 h-5"/> Instruments</button>
-                <button onClick={()=>setActiveTab('LOGS')} className={`flex-1 p-4 rounded-2xl flex items-center justify-center gap-3 transition font-bold ${activeTab==='LOGS'?'bg-white shadow-lg text-slate-800':'bg-slate-200 text-slate-500 hover:bg-slate-300'}`}><History className="w-5 h-5"/> Audit Logs</button>
-            </div>
-            {activeTab === 'INSTRUMENTS' ? (
-                <div className="bg-white rounded-3xl p-6 shadow-sm">
-                    <div className="flex justify-between items-center mb-6"><h2 className="text-xl font-bold text-slate-800">Instrument List ({instruments.length})</h2><button onClick={()=>setShowAddModal(true)} className="bg-slate-900 text-white px-4 py-2 rounded-xl text-sm font-bold hover:bg-slate-700 flex items-center gap-2"><Plus className="w-4 h-4"/> Add Device</button></div>
-                    <div className="space-y-3">{instruments.map(inst => (<div key={inst.id} className="flex items-center justify-between p-4 border border-slate-100 rounded-xl hover:border-slate-300 transition bg-slate-50"><div className="flex items-center gap-4"><div className={`w-12 h-12 rounded-lg flex items-center justify-center ${getColorStyle(inst.color).bg} ${getColorStyle(inst.color).text} font-bold text-xl`}>{inst.name[0]}</div><div><div className="font-bold text-slate-800">{inst.name}</div><div className="text-xs text-slate-500 flex items-center gap-1"><MapPin className="w-3 h-3"/> {inst.location || 'No Location'}</div><div className="text-[10px] text-slate-400 mt-1 flex flex-wrap gap-1">{inst.subOptions?.map(o=><span key={o} className="bg-slate-100 px-1 rounded">{o}</span>)}</div></div></div><button onClick={()=>handleDeleteInstrument(inst.id, inst.name)} className="p-2 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition"><Trash2 className="w-5 h-5"/></button></div>))}</div>
-                </div>
-            ) : (
-                <div className="bg-white rounded-3xl p-6 shadow-sm"><h2 className="text-xl font-bold text-slate-800 mb-6">Activity Logs</h2><div className="overflow-hidden rounded-xl border border-slate-100"><table className="w-full text-sm text-left"><thead className="bg-slate-50 text-slate-500 font-medium"><tr><th className="p-4">Time</th><th className="p-4">User</th><th className="p-4">Action</th><th className="p-4">Details</th></tr></thead><tbody className="divide-y divide-slate-100">{logs.map(log => (<tr key={log.id} className="hover:bg-slate-50"><td className="p-4 text-slate-400 font-mono text-xs">{formatTime(log.timestamp)}</td><td className="p-4 font-bold text-slate-700">{log.userName}</td><td className="p-4"><span className={`px-2 py-1 rounded text-xs font-bold ${log.action.includes('DEL') || log.action.includes('CANCEL') ? 'bg-red-100 text-red-600' : 'bg-blue-100 text-blue-600'}`}>{log.action}</span></td><td className="p-4 text-slate-600">{log.message}</td></tr>))}</tbody></table></div></div>
-            )}
+    <div className="max-w-6xl mx-auto p-4">
+      <div className="flex items-center justify-between mb-4">
+        <h2 className="text-xl font-semibold">Admin • {labName}</h2>
+        <div className="flex gap-2">
+          <button className={`px-3 py-1 rounded-md ${activeTab==='INSTRUMENTS'?'bg-slate-900 text-white':'bg-slate-100'}`} onClick={()=>setActiveTab('INSTRUMENTS')}>Instruments</button>
+          <button className={`px-3 py-1 rounded-md ${activeTab==='NOTES'?'bg-slate-900 text-white':'bg-slate-100'}`} onClick={()=>setActiveTab('NOTES')}>Notes</button>
+          <button className={`px-3 py-1 rounded-md ${activeTab==='LOGS'?'bg-slate-900 text-white':'bg-slate-100'}`} onClick={()=>setActiveTab('LOGS')}>Logs</button>
+          <button className="px-3 py-1 rounded-md bg-rose-100" onClick={onLogout}>Log out</button>
         </div>
-        <AddInstrumentModal isOpen={showAddModal} onClose={()=>setShowAddModal(false)} onAdd={handleAddInstrument} />
-    </div>
-  );
-};
+      </div>
 
-// 3. Add Instrument Modal
-const AddInstrumentModal = ({ isOpen, onClose, onAdd }) => {
-  const [name, setName] = useState('');
-  const [location, setLocation] = useState('');
-  const [image, setImage] = useState('');
-  const [subOptionsStr, setSubOptionsStr] = useState('');
-  const [color, setColor] = useState('blue');
+      {activeTab === 'INSTRUMENTS' && (
+        <div className="bg-white rounded-xl border">
+          <div className="p-3 border-b flex justify-between items-center">
+            <div className="font-medium">All Instruments</div>
+            <button className="px-3 py-1 rounded-md bg-blue-600 text-white" onClick={()=>setShowAddModal(true)}>Add</button>
+          </div>
+          <table className="w-full">
+            <thead>
+              <tr className="text-left text-sm text-slate-500">
+                <th className="p-3">Name</th>
+                <th className="p-3">Location</th>
+                <th className="p-3">Description</th>
+                <th className="p-3">Actions</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y">
+              {instruments.map(inst=>(
+                <tr key={inst.id}>
+                  <td className="p-3">{inst.name}</td>
+                  <td className="p-3">{inst.location}</td>
+                  <td className="p-3">{inst.description}</td>
+                  <td className="p-3">
+                    <button className="px-2 py-1 rounded-md bg-slate-200 mr-2" onClick={()=>setEditing(inst)}>Edit</button>
+                    {/* keep your existing Delete if present */}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
 
-  if (!isOpen) return null;
-  const handleSubmit = (e) => { 
-      e.preventDefault(); 
-      if (!name.trim()) return; 
-      const subOptions = subOptionsStr.split(/[,，\n]/).map(s => s.trim()).filter(s => s);
-      onAdd({ name, location, image, color, subOptions }); 
-      setName(''); setLocation(''); setImage(''); setSubOptionsStr(''); setColor('blue'); 
-  };
-
-  return (
-    <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4 backdrop-blur-sm animate-fade-in">
-        <div className="bg-white w-full max-w-sm rounded-3xl p-6 shadow-2xl overflow-y-auto max-h-[90vh]">
-            <h3 className="text-lg font-bold mb-4 text-slate-800">Add New Device</h3>
-            <form onSubmit={handleSubmit} className="space-y-4">
-                <div><label className="text-xs font-bold text-slate-400 uppercase ml-1">Device Name *</label><input autoFocus type="text" value={name} onChange={e=>setName(e.target.value)} className="w-full border-2 border-slate-100 p-3 rounded-xl focus:border-slate-800 outline-none"/></div>
-                <div><label className="text-xs font-bold text-slate-400 uppercase ml-1">Location</label><input type="text" value={location} onChange={e=>setLocation(e.target.value)} className="w-full border-2 border-slate-100 p-3 rounded-xl focus:border-slate-800 outline-none"/></div>
+      {activeTab === 'NOTES' && (
+        <div className="bg-white rounded-xl border">
+          <div className="p-3 border-b font-medium">Condition Notes from Users</div>
+          <div className="divide-y">
+            {notes.length === 0 && <div className="p-4 text-slate-500">No notes yet.</div>}
+            {notes.map(n=>(
+              <div key={n.id} className="p-4 flex items-start justify-between">
                 <div>
-                    <label className="text-xs font-bold text-slate-400 uppercase ml-1 flex items-center gap-1"><ListPlus className="w-3 h-3"/> Accessories/Inlets (Optional)</label>
-                    <textarea value={subOptionsStr} onChange={e=>setSubOptionsStr(e.target.value)} placeholder="e.g. Dry, Wet (comma separated)" className="w-full border-2 border-slate-100 p-3 rounded-xl focus:border-slate-800 outline-none text-sm h-20 resize-none"/>
-                    <p className="text-[10px] text-slate-400 mt-1 ml-1">User must select one when booking</p>
+                  <div className="font-medium">
+                    {n.instrumentName}
+                    {n.usedDate?.toDate ? ` — ${n.usedDate.toDate().toLocaleDateString()}` : ''}
+                  </div>
+                  <div className="text-sm text-slate-500">
+                    By {n.userName || 'Unknown'} · {n.createdAt?.toDate ? n.createdAt.toDate().toLocaleString() : ''}
+                  </div>
+                  <p className="mt-2">{n.content}</p>
+                  {n.status === 'RESOLVED' && <span className="mt-2 inline-block text-xs px-2 py-1 bg-emerald-100 rounded">Resolved</span>}
                 </div>
-                <div><label className="text-xs font-bold text-slate-400 uppercase ml-1">Image URL</label><input type="text" value={image} onChange={e=>setImage(e.target.value)} className="w-full border-2 border-slate-100 p-3 rounded-xl focus:border-slate-800 outline-none text-xs"/></div>
-                <div className="grid grid-cols-4 gap-3">{COLOR_PALETTE.map(c => (<div key={c.id} onClick={() => setColor(c.id)} className={`h-10 rounded-lg cursor-pointer flex items-center justify-center ${c.darkBg} ${color === c.id ? 'ring-4 ring-offset-2 ring-slate-200 scale-105' : 'opacity-70'}`}>{color === c.id && <CheckCircle2 className="w-5 h-5 text-white"/>}</div>))}</div>
-                <div className="flex gap-3 mt-6"><button type="button" onClick={onClose} className="flex-1 py-3 text-slate-500 font-bold bg-slate-50 rounded-xl">Cancel</button><button type="submit" className="flex-1 py-3 bg-slate-900 text-white font-bold rounded-xl">Confirm Add</button></div>
-            </form>
+                {n.status !== 'RESOLVED' && (
+                  <button className="px-3 py-1 rounded-md bg-emerald-600 text-white" onClick={()=>markNoteResolved(n)}>
+                    Mark resolved
+                  </button>
+                )}
+              </div>
+            ))}
+          </div>
         </div>
+      )}
+
+      {activeTab === 'LOGS' && (
+        <div className="bg-white rounded-xl border">
+          <div className="p-3 border-b font-medium">Operation History</div>
+          <div className="divide-y">
+            {logs.length === 0 && <div className="p-4 text-slate-500">No logs yet.</div>}
+            {logs.map(log=>(
+              <div key={log.id} className="p-4">
+                <div className="text-sm text-slate-500">{log.timestamp?.toDate ? log.timestamp.toDate().toLocaleString() : ''}</div>
+                <div className="font-medium">{log.action}</div>
+                <div className="text-sm">{log.message}</div>
+                <div className="text-xs text-slate-500">User: {log.userName || 'N/A'}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      <EditInstrumentModal
+        open={!!editing}
+        instrument={editing}
+        onClose={()=>setEditing(null)}
+        onSave={handleSaveEdit}
+      />
     </div>
   );
 };
+const LeaveNoteModal = ({ open, onClose, labName, instruments, userName }) => {
+  const [instrumentId, setInstrumentId] = useState('');
+  const [usedDate, setUsedDate] = useState(() => new Date().toISOString().slice(0,10));
+  const [content, setContent] = useState('');
 
-// 4. Booking Modal
-const BookingModal = ({ isOpen, onClose, initialDate, initialHour, instrument, onConfirm, isBooking }) => {
-  if (!isOpen) return null;
-  const [repeatOption, setRepeatOption] = useState(0); 
-  const [isFullDay, setIsFullDay] = useState(false); 
-  const [selectedSubOption, setSelectedSubOption] = useState(''); 
+  useEffect(()=> {
+    if (open) {
+      setInstrumentId('');
+      setUsedDate(new Date().toISOString().slice(0,10));
+      setContent('');
+    }
+  }, [open]);
 
-  const styles = getColorStyle(instrument?.color || 'blue');
-  const hasOptions = instrument?.subOptions && instrument.subOptions.length > 0;
+  if (!open) return null;
 
-  useEffect(() => {
-      if(hasOptions) setSelectedSubOption(instrument.subOptions[0]);
-      else setSelectedSubOption('');
-  }, [instrument]);
+  const submit = async () => {
+    const inst = instruments.find(i => i.id === instrumentId);
+    if (!inst || !content) return;
 
-  const getEndDate = () => { if (repeatOption === 0) return "Today Only"; const d = new Date(initialDate); d.setDate(d.getDate() + (repeatOption * 7)); return `Until ${d.getMonth()+1}/${d.getDate()}`; };
+    await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'notes'), {
+      labName,
+      instrumentId,
+      instrumentName: inst.name,
+      usedDate: new Date(usedDate),
+      content,
+      userName: userName || null,
+      status: 'OPEN',
+      createdAt: serverTimestamp()
+    });
+
+    await addAuditLog(labName, 'note.create', `Note on ${inst.name}`, userName || 'MEMBER');
+    onClose();
+  };
 
   return (
-    <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4 backdrop-blur-sm animate-fade-in">
-      <div className="bg-white w-full max-w-sm rounded-3xl p-6 shadow-2xl">
-        <div className="flex justify-between items-center mb-6"><h3 className="text-xl font-bold text-slate-800">Booking Details</h3><button onClick={onClose} className="text-slate-400 hover:text-slate-600"><X className="w-6 h-6"/></button></div>
-        <div className="space-y-4">
-          <div className={`${styles.bg} p-4 rounded-xl border-l-4 ${styles.border.replace('border', 'border-l')}`}><div className="text-xs opacity-60 uppercase font-bold mb-1">Device</div><div className={`text-lg font-bold ${styles.text}`}>{instrument?.name}</div>{instrument?.location && <div className="text-xs mt-1 flex items-center gap-1 opacity-80"><MapPin className="w-3 h-3"/> {instrument.location}</div>}</div>
-          
-          {hasOptions && (
-              <div className="bg-slate-50 p-4 rounded-xl border border-slate-100">
-                  <div className="text-xs text-slate-400 uppercase font-bold mb-2 flex items-center gap-1"><Plug className="w-3 h-3"/> Select Accessory/Inlet</div>
-                  <select value={selectedSubOption} onChange={(e)=>setSelectedSubOption(e.target.value)} className="w-full p-2 rounded-lg border border-slate-200 bg-white text-slate-700 text-sm outline-none focus:border-slate-400">
-                      {instrument.subOptions.map(opt => <option key={opt} value={opt}>{opt}</option>)}
-                  </select>
-              </div>
-          )}
-
-          <div className="flex gap-4"><div className="flex-1 bg-slate-50 p-4 rounded-xl"><div className="text-xs text-slate-400 uppercase font-bold mb-1">Date</div><div className="font-medium text-slate-700">{initialDate}</div></div><div className="flex-1 bg-slate-50 p-4 rounded-xl transition-all"><div className="text-xs text-slate-400 uppercase font-bold mb-1">Time Slot</div><div className={`font-medium ${isFullDay ? 'text-indigo-600 font-bold' : 'text-slate-700'}`}>{isFullDay ? 'All Day (24h)' : `${initialHour}:00`}</div></div></div>
-          <div onClick={() => setIsFullDay(!isFullDay)} className={`flex items-center justify-between p-4 rounded-xl border-2 cursor-pointer transition-all ${isFullDay ? 'border-indigo-500 bg-indigo-50' : 'border-slate-100 hover:border-slate-200'}`}><div className="flex items-center gap-3"><div className={`p-2 rounded-full ${isFullDay ? 'bg-indigo-200 text-indigo-700' : 'bg-slate-100 text-slate-400'}`}><Sun className="w-5 h-5" /></div><div><div className={`font-bold text-sm ${isFullDay ? 'text-indigo-900' : 'text-slate-600'}`}>Full Day Booking (24h)</div><div className="text-xs text-slate-400">Book 00:00 - 23:00</div></div></div>{isFullDay ? <CheckCircle2 className="w-6 h-6 text-indigo-600"/> : <div className="w-6 h-6 rounded-full border-2 border-slate-300"></div>}</div>
-          <div className="border-2 border-slate-50 rounded-xl p-4"><div className="flex items-center justify-between mb-3"><div className="flex items-center gap-2 text-slate-700"><Repeat className="w-4 h-4"/><span className="font-bold text-sm">Repeat</span></div><span className="text-xs text-slate-400 font-medium">{getEndDate()}</span></div><div className="grid grid-cols-4 gap-2">{[0, 1, 2, 3].map(opt => (<button key={opt} onClick={() => setRepeatOption(opt)} className={`py-2 rounded-lg text-xs font-bold transition ${repeatOption === opt ? `${styles.darkBg} text-white` : 'bg-slate-100 text-slate-500 hover:bg-slate-200'}`}>{opt === 0 ? 'Once' : `${opt + 1} Wks`}</button>))}</div></div>
-          <button onClick={() => onConfirm(repeatOption, isFullDay, selectedSubOption)} disabled={isBooking} className={`w-full py-4 text-white font-bold rounded-xl mt-2 flex items-center justify-center gap-2 disabled:opacity-70 ${styles.darkBg}`}>{isBooking ? <Loader2 className="animate-spin w-5 h-5"/> : isFullDay ? "Confirm Full Day" : "Confirm Booking"}</button>
+    <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center">
+      <div className="bg-white rounded-xl shadow-xl w-full max-w-lg p-6">
+        <h3 className="text-lg font-semibold mb-4">Leave a condition note</h3>
+        <div className="space-y-3">
+          <div>
+            <label className="text-sm text-slate-600">Instrument</label>
+            <select className="w-full border rounded-md px-3 py-2" value={instrumentId} onChange={e=>setInstrumentId(e.target.value)}>
+              <option value="">Select…</option>
+              {instruments.map(i=>(
+                <option key={i.id} value={i.id}>{i.name}</option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="text-sm text-slate-600">Day used</label>
+            <input type="date" className="w-full border rounded-md px-3 py-2" value={usedDate} onChange={e=>setUsedDate(e.target.value)} />
+          </div>
+          <div>
+            <label className="text-sm text-slate-600">Note</label>
+            <textarea className="w-full border rounded-md px-3 py-2" rows={4} placeholder="Condition / issues / damage / cleanliness..."
+                      value={content} onChange={e=>setContent(e.target.value)} />
+          </div>
+        </div>
+        <div className="mt-6 flex justify-end gap-2">
+          <button className="px-4 py-2 rounded-md bg-slate-100" onClick={onClose}>Cancel</button>
+          <button className="px-4 py-2 rounded-md bg-blue-600 text-white" onClick={submit}>Submit</button>
         </div>
       </div>
     </div>
@@ -286,6 +427,7 @@ const MemberApp = ({ labName, userName, onLogout }) => {
   const [bookings, setBookings] = useState([]);
   const [bookingToDelete, setBookingToDelete] = useState(null);
   const [bookingModal, setBookingModal] = useState({ isOpen: false, date: '', hour: 0, instrument: null });
+  const [showLeaveNote, setShowLeaveNote] = useState(false);
   const [isBookingProcess, setIsBookingProcess] = useState(false);
   const hour9Ref = useRef(null);
   const auth = getAuth();
@@ -368,6 +510,22 @@ const MemberApp = ({ labName, userName, onLogout }) => {
       {bookingToDelete && (<div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-6 backdrop-blur-sm animate-fade-in"><div className="bg-white w-full max-w-xs rounded-3xl p-6 shadow-2xl text-center relative"><button onClick={()=>setBookingToDelete(null)} className="absolute top-4 right-4 text-slate-300"><X className="w-5 h-5"/></button><div className="bg-red-100 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4"><AlertCircle className="w-8 h-8 text-red-500" /></div><h3 className="text-xl font-bold text-slate-800 mb-2">Cancel Booking?</h3><p className="text-slate-500 text-sm mb-6"><span className="font-bold">{bookingToDelete.instrumentName}</span> <br/> <span className="text-indigo-500 text-xs">{bookingToDelete.subOption ? `(${bookingToDelete.subOption})` : ''}</span></p><div className="flex gap-3"><button onClick={()=>setBookingToDelete(null)} className="flex-1 py-3 text-slate-600 font-bold bg-slate-100 rounded-xl">Keep</button><button onClick={handleDeleteBooking} className="flex-1 py-3 bg-red-500 text-white font-bold rounded-xl shadow-lg shadow-red-200">Confirm Cancel</button></div></div></div>)}
       <BookingModal isOpen={bookingModal.isOpen} onClose={() => setBookingModal({...bookingModal, isOpen: false})} initialDate={bookingModal.date} initialHour={bookingModal.hour} instrument={bookingModal.instrument} onConfirm={handleConfirmBooking} isBooking={isBookingProcess} />
       <style>{`.no-scrollbar::-webkit-scrollbar{display:none}.no-scrollbar{-ms-overflow-style:none;scrollbar-width:none}@keyframes fade-in{from{opacity:0}to{opacity:1}}@keyframes slide-up{from{transform:translateY(20px);opacity:0}to{transform:translateY(0);opacity:1}}.animate-fade-in{animation:fade-in 0.3s ease-out}.animate-slide-up{animation:slide-up 0.4s cubic-bezier(0.16,1,0.3,1)}`}</style>
+      {/* Leave Note action */}
+<button
+  className="px-3 py-1 rounded-md bg-indigo-600 text-white"
+  onClick={()=>setShowLeaveNote(true)}
+>
+  Leave condition note
+</button>
+
+{/* Modal mount */}
+<LeaveNoteModal
+  open={showLeaveNote}
+  onClose={()=>setShowLeaveNote(false)}
+  labName={labName}
+  instruments={instruments}
+  userName={userName}
+/>
     </div>
   );
 };
