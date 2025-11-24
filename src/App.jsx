@@ -14,6 +14,7 @@ import {
   onSnapshot, 
   addDoc, 
   deleteDoc, 
+  updateDoc, // Added for editing
   getDocs,
   doc,
   serverTimestamp,
@@ -25,24 +26,25 @@ import {
   Calendar as CalendarIcon, ChevronLeft, ChevronRight, Plus, Trash2, User, LogOut, Lock, Loader2, 
   LayoutGrid, CheckCircle2, ShieldCheck, Fingerprint, AlertCircle, X, Repeat, CalendarDays, MapPin, 
   Image as ImageIcon, Palette, Sun, Moon, Clock, ShieldAlert, History, Settings, Users, Beaker,
-  ListPlus, Plug
+  ListPlus, Plug, ArrowRightLeft, Search, LayoutDashboard, Pencil, Book, StickyNote
 } from 'lucide-react';
 
 // --- Firebase Init ---
-// ⚠️⚠️⚠️ REMEMBER TO REPLACE THIS WITH YOUR OWN FIREBASE CONFIG!
+// Using YOUR config
 const firebaseConfig = {
-    apiKey: "AIzaSyDxy4M1Rfue4zi_HcR23h7no9nbZUkjB74",
-    authDomain: "booking-lab-equipment.firebaseapp.com",
-    projectId: "booking-lab-equipment",
-    storageBucket: "booking-lab-equipment.firebasestorage.app",
-    messagingSenderId: "7360785156",
-    appId: "1:7360785156:web:215b80f3d62b592d08fe51",
-    measurementId: "G-NQ63WDKB7M"
-  };
+  apiKey: "AIzaSyDxy4M1Rfue4zi_HcR23h7no9nbZUkjB74",
+  authDomain: "booking-lab-equipment.firebaseapp.com",
+  projectId: "booking-lab-equipment",
+  storageBucket: "booking-lab-equipment.firebasestorage.app",
+  messagingSenderId: "7360785156",
+  appId: "1:7360785156:web:215b80f3d62b592d08fe51",
+  measurementId: "G-NQ63WDKB7M"
+};
+
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const db = getFirestore(app);
-const appId = "booking-lab";
+const appId = "booking-lab"; // Kept your appId
 
 // --- Helpers ---
 const getFormattedDate = (date) => date.toISOString().split('T')[0];
@@ -60,7 +62,6 @@ const getMonday = (d) => {
 const formatTime = (timestamp) => {
   if(!timestamp) return '';
   const d = timestamp.toDate();
-  // Format: MM/DD HH:MM
   return `${d.getMonth()+1}/${d.getDate()} ${d.getHours().toString().padStart(2,'0')}:${d.getMinutes().toString().padStart(2,'0')}`;
 };
 
@@ -145,110 +146,196 @@ const GateScreen = ({ onLoginSuccess }) => {
   );
 };
 
-// 2. Admin Dashboard
+// 2. Admin Dashboard (Updated with EDIT & NOTEBOOK)
 const AdminDashboard = ({ labName, onLogout }) => {
   const [instruments, setInstruments] = useState([]);
   const [logs, setLogs] = useState([]);
+  const [notes, setNotes] = useState([]); // New Notes
   const [activeTab, setActiveTab] = useState('INSTRUMENTS'); 
-  const [showAddModal, setShowAddModal] = useState(false);
+  const [showInstrumentModal, setShowInstrumentModal] = useState(false);
+  const [editingInstrument, setEditingInstrument] = useState(null); // New Edit State
 
   useEffect(() => {
+    // Instruments
     const qInst = query(collection(db, 'artifacts', appId, 'public', 'data', 'instruments'), where('labName', '==', labName));
     const unsubInst = onSnapshot(qInst, (snap) => setInstruments(snap.docs.map(d => ({ id: d.id, ...d.data() }))));
-    const qLogs = query(collection(db, 'artifacts', appId, 'public', 'data', 'logs'), where('labName', '==', labName), orderBy('timestamp', 'desc'), limit(50));
-    const unsubLogs = onSnapshot(qLogs, (snap) => setLogs(snap.docs.map(d => ({ id: d.id, ...d.data() }))));
-    return () => { unsubInst(); unsubLogs(); };
+    
+    // Logs (Fixed: Removed orderBy to avoid index errors, sorting in memory)
+    const qLogs = query(collection(db, 'artifacts', appId, 'public', 'data', 'logs'), where('labName', '==', labName));
+    const unsubLogs = onSnapshot(qLogs, (snap) => {
+        const data = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+        data.sort((a, b) => (b.timestamp?.seconds || 0) - (a.timestamp?.seconds || 0));
+        setLogs(data);
+    });
+
+    // Notes
+    const qNotes = query(collection(db, 'artifacts', appId, 'public', 'data', 'notes'), where('labName', '==', labName));
+    const unsubNotes = onSnapshot(qNotes, (snap) => {
+        const data = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+        data.sort((a, b) => (b.timestamp?.seconds || 0) - (a.timestamp?.seconds || 0));
+        setNotes(data);
+    });
+
+    return () => { unsubInst(); unsubLogs(); unsubNotes(); };
   }, [labName]);
 
-  const handleAddInstrument = async (data) => {
-    await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'instruments'), { labName, ...data, createdAt: serverTimestamp() });
-    await addAuditLog(labName, 'ADD_INST', `Add Device: ${data.name}`, 'Admin');
-    setShowAddModal(false);
+  const handleSaveInstrument = async (data) => {
+    if (editingInstrument) {
+        // Update
+        const ref = doc(db, 'artifacts', appId, 'public', 'data', 'instruments', editingInstrument.id);
+        await updateDoc(ref, { ...data });
+        await addAuditLog(labName, 'EDIT_INST', `Modified: ${data.name}`, 'Admin');
+    } else {
+        // Add
+        await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'instruments'), { labName, ...data, createdAt: serverTimestamp() });
+        await addAuditLog(labName, 'ADD_INST', `Added: ${data.name}`, 'Admin');
+    }
+    setShowInstrumentModal(false);
+    setEditingInstrument(null);
   };
+
   const handleDeleteInstrument = async (id, name) => {
     if(!confirm(`Delete ${name}?`)) return;
     await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'instruments', id));
-    await addAuditLog(labName, 'DEL_INST', `Delete Device: ${name}`, 'Admin');
+    await addAuditLog(labName, 'DEL_INST', `Deleted: ${name}`, 'Admin');
+  };
+
+  const handleDeleteNote = async (id) => {
+      if(!confirm("Delete this note?")) return;
+      await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'notes', id));
   };
 
   return (
     <div className="min-h-screen bg-slate-100 font-sans">
         <header className="bg-slate-800 text-white px-6 py-4 flex justify-between items-center sticky top-0 z-50 shadow-md">
-            <div className="flex items-center gap-3"><div className="bg-slate-700 p-2 rounded-lg"><ShieldCheck className="w-6 h-6 text-yellow-400"/></div><div><h1 className="font-bold text-lg leading-tight">{labName}</h1><p className="text-xs text-slate-400">Admin Dashboard</p></div></div>
+            <div className="flex items-center gap-3"><div className="bg-slate-700 p-2 rounded-lg"><ShieldCheck className="w-6 h-6 text-yellow-400"/></div><div><h1 className="font-bold text-lg leading-tight">{labName}</h1><p className="text-xs text-slate-400">Admin Console</p></div></div>
             <button onClick={onLogout} className="text-slate-300 hover:text-white flex items-center gap-2 text-sm"><LogOut className="w-4 h-4"/> Logout</button>
         </header>
         <div className="p-6 max-w-5xl mx-auto">
-            <div className="flex gap-4 mb-6">
-                <button onClick={()=>setActiveTab('INSTRUMENTS')} className={`flex-1 p-4 rounded-2xl flex items-center justify-center gap-3 transition font-bold ${activeTab==='INSTRUMENTS'?'bg-white shadow-lg text-slate-800':'bg-slate-200 text-slate-500 hover:bg-slate-300'}`}><Settings className="w-5 h-5"/> Instruments</button>
-                <button onClick={()=>setActiveTab('LOGS')} className={`flex-1 p-4 rounded-2xl flex items-center justify-center gap-3 transition font-bold ${activeTab==='LOGS'?'bg-white shadow-lg text-slate-800':'bg-slate-200 text-slate-500 hover:bg-slate-300'}`}><History className="w-5 h-5"/> Audit Logs</button>
+            <div className="flex gap-4 mb-6 overflow-x-auto no-scrollbar">
+                <button onClick={()=>setActiveTab('INSTRUMENTS')} className={`flex-1 min-w-[140px] p-4 rounded-2xl flex items-center justify-center gap-3 transition font-bold ${activeTab==='INSTRUMENTS'?'bg-white shadow-lg text-slate-800':'bg-slate-200 text-slate-500 hover:bg-slate-300'}`}><Settings className="w-5 h-5"/> Devices</button>
+                <button onClick={()=>setActiveTab('NOTEBOOK')} className={`flex-1 min-w-[140px] p-4 rounded-2xl flex items-center justify-center gap-3 transition font-bold ${activeTab==='NOTEBOOK'?'bg-white shadow-lg text-slate-800':'bg-slate-200 text-slate-500 hover:bg-slate-300'}`}><Book className="w-5 h-5"/> Notebook</button>
+                <button onClick={()=>setActiveTab('LOGS')} className={`flex-1 min-w-[140px] p-4 rounded-2xl flex items-center justify-center gap-3 transition font-bold ${activeTab==='LOGS'?'bg-white shadow-lg text-slate-800':'bg-slate-200 text-slate-500 hover:bg-slate-300'}`}><History className="w-5 h-5"/> Logs</button>
             </div>
-            {activeTab === 'INSTRUMENTS' ? (
+
+            {/* INSTRUMENTS */}
+            {activeTab === 'INSTRUMENTS' && (
                 <div className="bg-white rounded-3xl p-6 shadow-sm">
-                    <div className="flex justify-between items-center mb-6"><h2 className="text-xl font-bold text-slate-800">Instrument List ({instruments.length})</h2><button onClick={()=>setShowAddModal(true)} className="bg-slate-900 text-white px-4 py-2 rounded-xl text-sm font-bold hover:bg-slate-700 flex items-center gap-2"><Plus className="w-4 h-4"/> Add Device</button></div>
-                    <div className="space-y-3">{instruments.map(inst => (<div key={inst.id} className="flex items-center justify-between p-4 border border-slate-100 rounded-xl hover:border-slate-300 transition bg-slate-50"><div className="flex items-center gap-4"><div className={`w-12 h-12 rounded-lg flex items-center justify-center ${getColorStyle(inst.color).bg} ${getColorStyle(inst.color).text} font-bold text-xl`}>{inst.name[0]}</div><div><div className="font-bold text-slate-800">{inst.name}</div><div className="text-xs text-slate-500 flex items-center gap-1"><MapPin className="w-3 h-3"/> {inst.location || 'No Location'}</div><div className="text-[10px] text-slate-400 mt-1 flex flex-wrap gap-1">{inst.subOptions?.map(o=><span key={o} className="bg-slate-100 px-1 rounded">{o}</span>)}</div></div></div><button onClick={()=>handleDeleteInstrument(inst.id, inst.name)} className="p-2 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition"><Trash2 className="w-5 h-5"/></button></div>))}</div>
+                    <div className="flex justify-between items-center mb-6"><h2 className="text-xl font-bold text-slate-800">Devices ({instruments.length})</h2><button onClick={()=>{setEditingInstrument(null); setShowInstrumentModal(true);}} className="bg-slate-900 text-white px-4 py-2 rounded-xl text-sm font-bold hover:bg-slate-700 flex items-center gap-2"><Plus className="w-4 h-4"/> Add</button></div>
+                    <div className="space-y-3">{instruments.map(inst => (<div key={inst.id} className="flex items-center justify-between p-4 border border-slate-100 rounded-xl hover:border-slate-300 transition bg-slate-50"><div className="flex items-center gap-4"><div className={`w-12 h-12 rounded-lg flex items-center justify-center ${getColorStyle(inst.color).bg} ${getColorStyle(inst.color).text} font-bold text-xl`}>{inst.name[0]}</div><div><div className="font-bold text-slate-800">{inst.name}</div><div className="text-xs text-slate-500 flex items-center gap-1"><MapPin className="w-3 h-3"/> {inst.location || 'No Location'}</div><div className="text-[10px] text-slate-400 mt-1 flex flex-wrap gap-1">{inst.subOptions?.map(o=><span key={o} className="bg-slate-100 px-1 rounded">{o}</span>)}</div></div></div>
+                    <div className="flex gap-2">
+                        <button onClick={()=>{setEditingInstrument(inst); setShowInstrumentModal(true);}} className="p-2 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition"><Pencil className="w-5 h-5"/></button>
+                        <button onClick={()=>handleDeleteInstrument(inst.id, inst.name)} className="p-2 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition"><Trash2 className="w-5 h-5"/></button>
+                    </div></div>))}</div>
                 </div>
-            ) : (
-                <div className="bg-white rounded-3xl p-6 shadow-sm"><h2 className="text-xl font-bold text-slate-800 mb-6">Activity Logs</h2><div className="overflow-hidden rounded-xl border border-slate-100"><table className="w-full text-sm text-left"><thead className="bg-slate-50 text-slate-500 font-medium"><tr><th className="p-4">Time</th><th className="p-4">User</th><th className="p-4">Action</th><th className="p-4">Details</th></tr></thead><tbody className="divide-y divide-slate-100">{logs.map(log => (<tr key={log.id} className="hover:bg-slate-50"><td className="p-4 text-slate-400 font-mono text-xs">{formatTime(log.timestamp)}</td><td className="p-4 font-bold text-slate-700">{log.userName}</td><td className="p-4"><span className={`px-2 py-1 rounded text-xs font-bold ${log.action.includes('DEL') || log.action.includes('CANCEL') ? 'bg-red-100 text-red-600' : 'bg-blue-100 text-blue-600'}`}>{log.action}</span></td><td className="p-4 text-slate-600">{log.message}</td></tr>))}</tbody></table></div></div>
+            )}
+
+            {/* NOTEBOOK */}
+            {activeTab === 'NOTEBOOK' && (
+                <div className="bg-white rounded-3xl p-6 shadow-sm">
+                    <h2 className="text-xl font-bold text-slate-800 mb-6 flex items-center gap-2"><Book className="w-6 h-6 text-indigo-500"/> User Notes & Reports</h2>
+                    <div className="space-y-4">
+                        {notes.length === 0 && <div className="text-center py-10 text-slate-400">No notes yet.</div>}
+                        {notes.map(note => (
+                            <div key={note.id} className="bg-yellow-50 p-4 rounded-xl border border-yellow-100 relative">
+                                <div className="flex justify-between items-start mb-2">
+                                    <div className="flex items-center gap-2"><span className="font-bold text-slate-800">{note.userName}</span><span className="text-xs text-slate-400">reported on {note.instrumentName}</span></div>
+                                    <span className="text-xs text-slate-400">{formatTime(note.timestamp)}</span>
+                                </div>
+                                <p className="text-slate-700 text-sm leading-relaxed whitespace-pre-wrap">{note.message}</p>
+                                <button onClick={() => handleDeleteNote(note.id)} className="absolute bottom-4 right-4 text-yellow-300 hover:text-red-400 transition"><Trash2 className="w-4 h-4"/></button>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            )}
+
+            {/* LOGS */}
+            {activeTab === 'LOGS' && (
+                <div className="bg-white rounded-3xl p-6 shadow-sm"><h2 className="text-xl font-bold text-slate-800 mb-6">System Logs</h2><div className="overflow-hidden rounded-xl border border-slate-100"><table className="w-full text-sm text-left"><thead className="bg-slate-50 text-slate-500 font-medium"><tr><th className="p-4">Time</th><th className="p-4">User</th><th className="p-4">Action</th><th className="p-4">Details</th></tr></thead><tbody className="divide-y divide-slate-100">{logs.map(log => (<tr key={log.id} className="hover:bg-slate-50"><td className="p-4 text-slate-400 font-mono text-xs">{formatTime(log.timestamp)}</td><td className="p-4 font-bold text-slate-700">{log.userName}</td><td className="p-4"><span className={`px-2 py-1 rounded text-xs font-bold ${log.action.includes('DEL') || log.action.includes('CANCEL') ? 'bg-red-100 text-red-600' : 'bg-blue-100 text-blue-600'}`}>{log.action}</span></td><td className="p-4 text-slate-600">{log.message}</td></tr>))}</tbody></table></div></div>
             )}
         </div>
-        <AddInstrumentModal isOpen={showAddModal} onClose={()=>setShowAddModal(false)} onAdd={handleAddInstrument} />
+        <InstrumentModal isOpen={showInstrumentModal} onClose={()=>setShowInstrumentModal(false)} onSave={handleSaveInstrument} initialData={editingInstrument} />
     </div>
   );
 };
 
-// 3. Add Instrument Modal
-const AddInstrumentModal = ({ isOpen, onClose, onAdd }) => {
+// 3. Instrument Modal (Unified Add/Edit)
+const InstrumentModal = ({ isOpen, onClose, onSave, initialData }) => {
   const [name, setName] = useState('');
   const [location, setLocation] = useState('');
   const [image, setImage] = useState('');
   const [subOptionsStr, setSubOptionsStr] = useState('');
   const [color, setColor] = useState('blue');
 
+  useEffect(() => {
+      if (initialData) {
+          setName(initialData.name || '');
+          setLocation(initialData.location || '');
+          setImage(initialData.image || '');
+          setSubOptionsStr(initialData.subOptions ? initialData.subOptions.join(', ') : '');
+          setColor(initialData.color || 'blue');
+      } else {
+          setName(''); setLocation(''); setImage(''); setSubOptionsStr(''); setColor('blue');
+      }
+  }, [initialData, isOpen]);
+
   if (!isOpen) return null;
   const handleSubmit = (e) => { 
       e.preventDefault(); 
       if (!name.trim()) return; 
       const subOptions = subOptionsStr.split(/[,，\n]/).map(s => s.trim()).filter(s => s);
-      onAdd({ name, location, image, color, subOptions }); 
-      setName(''); setLocation(''); setImage(''); setSubOptionsStr(''); setColor('blue'); 
+      onSave({ name, location, image, color, subOptions }); 
   };
 
   return (
     <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4 backdrop-blur-sm animate-fade-in">
         <div className="bg-white w-full max-w-sm rounded-3xl p-6 shadow-2xl overflow-y-auto max-h-[90vh]">
-            <h3 className="text-lg font-bold mb-4 text-slate-800">Add New Device</h3>
+            <h3 className="text-lg font-bold mb-4 text-slate-800">{initialData ? 'Edit Device' : 'Add New Device'}</h3>
             <form onSubmit={handleSubmit} className="space-y-4">
                 <div><label className="text-xs font-bold text-slate-400 uppercase ml-1">Device Name *</label><input autoFocus type="text" value={name} onChange={e=>setName(e.target.value)} className="w-full border-2 border-slate-100 p-3 rounded-xl focus:border-slate-800 outline-none"/></div>
                 <div><label className="text-xs font-bold text-slate-400 uppercase ml-1">Location</label><input type="text" value={location} onChange={e=>setLocation(e.target.value)} className="w-full border-2 border-slate-100 p-3 rounded-xl focus:border-slate-800 outline-none"/></div>
                 <div>
-                    <label className="text-xs font-bold text-slate-400 uppercase ml-1 flex items-center gap-1"><ListPlus className="w-3 h-3"/> Accessories/Inlets (Optional)</label>
+                    <label className="text-xs font-bold text-slate-400 uppercase ml-1 flex items-center gap-1"><ListPlus className="w-3 h-3"/> Accessories (Optional)</label>
                     <textarea value={subOptionsStr} onChange={e=>setSubOptionsStr(e.target.value)} placeholder="e.g. Dry, Wet (comma separated)" className="w-full border-2 border-slate-100 p-3 rounded-xl focus:border-slate-800 outline-none text-sm h-20 resize-none"/>
-                    <p className="text-[10px] text-slate-400 mt-1 ml-1">User must select one when booking</p>
                 </div>
                 <div><label className="text-xs font-bold text-slate-400 uppercase ml-1">Image URL</label><input type="text" value={image} onChange={e=>setImage(e.target.value)} className="w-full border-2 border-slate-100 p-3 rounded-xl focus:border-slate-800 outline-none text-xs"/></div>
                 <div className="grid grid-cols-4 gap-3">{COLOR_PALETTE.map(c => (<div key={c.id} onClick={() => setColor(c.id)} className={`h-10 rounded-lg cursor-pointer flex items-center justify-center ${c.darkBg} ${color === c.id ? 'ring-4 ring-offset-2 ring-slate-200 scale-105' : 'opacity-70'}`}>{color === c.id && <CheckCircle2 className="w-5 h-5 text-white"/>}</div>))}</div>
-                <div className="flex gap-3 mt-6"><button type="button" onClick={onClose} className="flex-1 py-3 text-slate-500 font-bold bg-slate-50 rounded-xl">Cancel</button><button type="submit" className="flex-1 py-3 bg-slate-900 text-white font-bold rounded-xl">Confirm Add</button></div>
+                <div className="flex gap-3 mt-6"><button type="button" onClick={onClose} className="flex-1 py-3 text-slate-500 font-bold bg-slate-50 rounded-xl">Cancel</button><button type="submit" className="flex-1 py-3 bg-slate-900 text-white font-bold rounded-xl">{initialData ? 'Save Changes' : 'Confirm Add'}</button></div>
             </form>
         </div>
     </div>
   );
 };
 
-// 4. Booking Modal
+// 4. Note Modal
+const NoteModal = ({ isOpen, onClose, instrument, userName, onSave }) => {
+    const [msg, setMsg] = useState('');
+    if (!isOpen) return null;
+    return (
+      <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4 backdrop-blur-sm animate-fade-in">
+        <div className="bg-white w-full max-w-sm rounded-3xl p-6 shadow-2xl">
+            <h3 className="text-lg font-bold mb-2 text-slate-800">Report / Note</h3>
+            <p className="text-xs text-slate-500 mb-4">Leave a note about the condition of <span className="font-bold text-indigo-600">{instrument.name}</span>.</p>
+            <textarea autoFocus value={msg} onChange={e=>setMsg(e.target.value)} className="w-full h-32 border-2 border-slate-100 p-3 rounded-xl focus:border-indigo-500 outline-none text-sm resize-none mb-4" placeholder="e.g. Lens is dirty, needs cleaning..."></textarea>
+            <div className="flex gap-3">
+                <button onClick={onClose} className="flex-1 py-3 text-slate-500 font-bold bg-slate-50 rounded-xl">Cancel</button>
+                <button onClick={()=>{onSave(msg); setMsg('');}} disabled={!msg.trim()} className="flex-1 py-3 bg-indigo-600 text-white font-bold rounded-xl disabled:opacity-50">Submit</button>
+            </div>
+        </div>
+      </div>
+    )
+}
+
+// 5. Booking Modal
 const BookingModal = ({ isOpen, onClose, initialDate, initialHour, instrument, onConfirm, isBooking }) => {
   if (!isOpen) return null;
   const [repeatOption, setRepeatOption] = useState(0); 
   const [isFullDay, setIsFullDay] = useState(false); 
   const [selectedSubOption, setSelectedSubOption] = useState(''); 
-
   const styles = getColorStyle(instrument?.color || 'blue');
   const hasOptions = instrument?.subOptions && instrument.subOptions.length > 0;
-
-  useEffect(() => {
-      if(hasOptions) setSelectedSubOption(instrument.subOptions[0]);
-      else setSelectedSubOption('');
-  }, [instrument]);
-
+  useEffect(() => { if(hasOptions) setSelectedSubOption(instrument.subOptions[0]); else setSelectedSubOption(''); }, [instrument]);
   const getEndDate = () => { if (repeatOption === 0) return "Today Only"; const d = new Date(initialDate); d.setDate(d.getDate() + (repeatOption * 7)); return `Until ${d.getMonth()+1}/${d.getDate()}`; };
 
   return (
@@ -257,18 +344,9 @@ const BookingModal = ({ isOpen, onClose, initialDate, initialHour, instrument, o
         <div className="flex justify-between items-center mb-6"><h3 className="text-xl font-bold text-slate-800">Booking Details</h3><button onClick={onClose} className="text-slate-400 hover:text-slate-600"><X className="w-6 h-6"/></button></div>
         <div className="space-y-4">
           <div className={`${styles.bg} p-4 rounded-xl border-l-4 ${styles.border.replace('border', 'border-l')}`}><div className="text-xs opacity-60 uppercase font-bold mb-1">Device</div><div className={`text-lg font-bold ${styles.text}`}>{instrument?.name}</div>{instrument?.location && <div className="text-xs mt-1 flex items-center gap-1 opacity-80"><MapPin className="w-3 h-3"/> {instrument.location}</div>}</div>
-          
-          {hasOptions && (
-              <div className="bg-slate-50 p-4 rounded-xl border border-slate-100">
-                  <div className="text-xs text-slate-400 uppercase font-bold mb-2 flex items-center gap-1"><Plug className="w-3 h-3"/> Select Accessory/Inlet</div>
-                  <select value={selectedSubOption} onChange={(e)=>setSelectedSubOption(e.target.value)} className="w-full p-2 rounded-lg border border-slate-200 bg-white text-slate-700 text-sm outline-none focus:border-slate-400">
-                      {instrument.subOptions.map(opt => <option key={opt} value={opt}>{opt}</option>)}
-                  </select>
-              </div>
-          )}
-
+          {hasOptions && (<div className="bg-slate-50 p-4 rounded-xl border border-slate-100"><div className="text-xs text-slate-400 uppercase font-bold mb-2 flex items-center gap-1"><Plug className="w-3 h-3"/> Select Accessory/Inlet</div><select value={selectedSubOption} onChange={(e)=>setSelectedSubOption(e.target.value)} className="w-full p-2 rounded-lg border border-slate-200 bg-white text-slate-700 text-sm outline-none focus:border-slate-400">{instrument.subOptions.map(opt => <option key={opt} value={opt}>{opt}</option>)}</select></div>)}
           <div className="flex gap-4"><div className="flex-1 bg-slate-50 p-4 rounded-xl"><div className="text-xs text-slate-400 uppercase font-bold mb-1">Date</div><div className="font-medium text-slate-700">{initialDate}</div></div><div className="flex-1 bg-slate-50 p-4 rounded-xl transition-all"><div className="text-xs text-slate-400 uppercase font-bold mb-1">Time Slot</div><div className={`font-medium ${isFullDay ? 'text-indigo-600 font-bold' : 'text-slate-700'}`}>{isFullDay ? 'All Day (24h)' : `${initialHour}:00`}</div></div></div>
-          <div onClick={() => setIsFullDay(!isFullDay)} className={`flex items-center justify-between p-4 rounded-xl border-2 cursor-pointer transition-all ${isFullDay ? 'border-indigo-500 bg-indigo-50' : 'border-slate-100 hover:border-slate-200'}`}><div className="flex items-center gap-3"><div className={`p-2 rounded-full ${isFullDay ? 'bg-indigo-200 text-indigo-700' : 'bg-slate-100 text-slate-400'}`}><Sun className="w-5 h-5" /></div><div><div className={`font-bold text-sm ${isFullDay ? 'text-indigo-900' : 'text-slate-600'}`}>Full Day Booking (24h)</div><div className="text-xs text-slate-400">Book 00:00 - 23:00</div></div></div>{isFullDay ? <CheckCircle2 className="w-6 h-6 text-indigo-600"/> : <div className="w-6 h-6 rounded-full border-2 border-slate-300"></div>}</div>
+          <div onClick={() => setIsFullDay(!isFullDay)} className={`flex items-center justify-between p-4 rounded-xl border-2 cursor-pointer transition-all ${isFullDay ? 'border-indigo-500 bg-indigo-50' : 'border-slate-100 hover:border-slate-200'}`}><div className="flex items-center gap-3"><div className={`p-2 rounded-full ${isFullDay ? 'bg-indigo-200 text-indigo-700' : 'bg-slate-100 text-slate-400'}`}><Sun className="w-5 h-5" /></div><div><div className={`font-bold text-sm ${isFullDay ? 'text-indigo-900' : 'text-slate-600'}`}>Full Day (24h)</div><div className="text-xs text-slate-400">00:00 - 23:00</div></div></div>{isFullDay ? <CheckCircle2 className="w-6 h-6 text-indigo-600"/> : <div className="w-6 h-6 rounded-full border-2 border-slate-300"></div>}</div>
           <div className="border-2 border-slate-50 rounded-xl p-4"><div className="flex items-center justify-between mb-3"><div className="flex items-center gap-2 text-slate-700"><Repeat className="w-4 h-4"/><span className="font-bold text-sm">Repeat</span></div><span className="text-xs text-slate-400 font-medium">{getEndDate()}</span></div><div className="grid grid-cols-4 gap-2">{[0, 1, 2, 3].map(opt => (<button key={opt} onClick={() => setRepeatOption(opt)} className={`py-2 rounded-lg text-xs font-bold transition ${repeatOption === opt ? `${styles.darkBg} text-white` : 'bg-slate-100 text-slate-500 hover:bg-slate-200'}`}>{opt === 0 ? 'Once' : `${opt + 1} Wks`}</button>))}</div></div>
           <button onClick={() => onConfirm(repeatOption, isFullDay, selectedSubOption)} disabled={isBooking} className={`w-full py-4 text-white font-bold rounded-xl mt-2 flex items-center justify-center gap-2 disabled:opacity-70 ${styles.darkBg}`}>{isBooking ? <Loader2 className="animate-spin w-5 h-5"/> : isFullDay ? "Confirm Full Day" : "Confirm Booking"}</button>
         </div>
@@ -277,16 +355,38 @@ const BookingModal = ({ isOpen, onClose, initialDate, initialHour, instrument, o
   );
 };
 
-// 5. Full Feature Member App
+// 6. Instrument Selection Modal
+const InstrumentSelectionModal = ({ isOpen, onClose, instruments, onSelect, currentId }) => {
+  const [search, setSearch] = useState('');
+  if (!isOpen) return null;
+  const sortedInstruments = [...instruments].filter(i => i.name.toLowerCase().includes(search.toLowerCase())).sort((a, b) => a.name.localeCompare(b.name));
+  return (
+    <div className="fixed inset-0 bg-slate-100 z-50 flex flex-col animate-fade-in">
+      <div className="bg-white px-4 py-4 shadow-sm flex items-center gap-3 sticky top-0 z-10"><button onClick={onClose} className="p-2 rounded-full hover:bg-slate-100"><X className="w-6 h-6 text-slate-600"/></button><h2 className="text-lg font-bold text-slate-800">Switch View</h2></div>
+      <div className="px-4 py-2 bg-white border-b border-slate-100"><div className="bg-slate-100 rounded-xl flex items-center px-3 py-2"><Search className="w-5 h-5 text-slate-400 mr-2"/><input type="text" value={search} onChange={e => setSearch(e.target.value)} placeholder="Search..." className="bg-transparent outline-none w-full text-sm" autoFocus/></div></div>
+      <div className="flex-1 overflow-y-auto p-4 space-y-3">
+        <button onClick={() => onSelect(null)} className={`w-full bg-indigo-600 p-4 rounded-2xl shadow-md shadow-indigo-200 flex items-center gap-4 text-white hover:bg-indigo-700 transition ${currentId === null ? 'ring-4 ring-offset-2 ring-indigo-300' : ''}`}><div className="w-10 h-10 rounded-xl bg-white/20 flex items-center justify-center"><LayoutGrid className="w-6 h-6 text-white"/></div><div className="text-left"><div className="font-bold">Show All (Overview)</div><div className="text-xs text-indigo-200">Matrix Scheduler View</div></div>{currentId === null && <CheckCircle2 className="w-6 h-6 text-white ml-auto"/>}</button>
+        <div className="text-xs font-bold text-slate-400 uppercase tracking-wider mt-4 mb-2">Individual Instruments</div>
+        <div className="grid grid-cols-2 gap-3">{sortedInstruments.map(inst => { const styles = getColorStyle(inst.color); const isSelected = currentId === inst.id; return (<button key={inst.id} onClick={() => onSelect(inst.id)} className={`bg-white p-4 rounded-2xl border transition text-left flex flex-col items-start ${isSelected ? `border-blue-500 ring-2 ring-blue-200` : 'border-slate-100 hover:shadow-md'}`}><div className={`w-10 h-10 rounded-xl flex items-center justify-center mb-3 ${styles.bg}`}>{inst.image ? <img src={inst.image} className="w-full h-full rounded-xl object-cover"/> : <span className={`font-bold text-lg ${styles.text}`}>{inst.name[0]}</span>}</div><div className="font-bold text-slate-800 text-sm line-clamp-2">{inst.name}</div><div className="text-xs text-slate-400 mt-1 line-clamp-1">{inst.location || 'No location'}</div></button>) })}</div>
+      </div>
+    </div>
+  );
+};
+
+// 7. Member App (Main)
 const MemberApp = ({ labName, userName, onLogout }) => {
   const [viewMode, setViewMode] = useState('day');
   const [date, setDate] = useState(new Date());
-  const [selectedTab, setSelectedTab] = useState('overview');
+  const [selectedInstrumentId, setSelectedInstrumentId] = useState(null); 
+  const [showSelectionModal, setShowSelectionModal] = useState(false);
+  const [showNoteModal, setShowNoteModal] = useState(false);
+  
   const [instruments, setInstruments] = useState([]);
   const [bookings, setBookings] = useState([]);
   const [bookingToDelete, setBookingToDelete] = useState(null);
   const [bookingModal, setBookingModal] = useState({ isOpen: false, date: '', hour: 0, instrument: null });
   const [isBookingProcess, setIsBookingProcess] = useState(false);
+  
   const hour9Ref = useRef(null);
   const auth = getAuth();
   const currentUserId = auth.currentUser?.uid;
@@ -300,22 +400,16 @@ const MemberApp = ({ labName, userName, onLogout }) => {
     return () => { unsubInst(); unsubBook(); };
   }, [labName]);
 
-  useEffect(() => { if(hour9Ref.current) hour9Ref.current.scrollIntoView({ block: 'center', behavior: 'smooth' }); }, [viewMode, selectedTab]);
+  useEffect(() => { if(hour9Ref.current && selectedInstrumentId) hour9Ref.current.scrollIntoView({ block: 'center', behavior: 'smooth' }); }, [viewMode, selectedInstrumentId]);
 
   const handleConfirmBooking = async (repeatCount, isFullDay, subOption) => {
     if (!bookingModal.instrument) return; setIsBookingProcess(true);
     const { date: startDateStr, hour: startHour, instrument } = bookingModal; const startDate = new Date(startDateStr); const batch = writeBatch(db); const newBookings = []; const targetDates = [];
     for (let i = 0; i <= repeatCount; i++) { const d = new Date(startDate); d.setDate(startDate.getDate() + (i * 7)); targetDates.push(getFormattedDate(d)); }
     targetDates.forEach(dStr => { if (isFullDay) { for (let h = 0; h < 24; h++) newBookings.push({ date: dStr, hour: h }); } else { newBookings.push({ date: dStr, hour: startHour }); } });
-
     const conflicts = [];
-    newBookings.forEach(target => {
-       const isTaken = bookings.some(b => b.instrumentId === instrument.id && b.date === target.date && b.hour === target.hour);
-       if (isTaken && !conflicts.includes(target.date)) conflicts.push(target.date);
-    });
-
+    newBookings.forEach(target => { const isTaken = bookings.some(b => b.instrumentId === instrument.id && b.date === target.date && b.hour === target.hour); if (isTaken && !conflicts.includes(target.date)) conflicts.push(target.date); });
     if (conflicts.length > 0) { alert(`Conflict: ${conflicts.join(', ')}`); setIsBookingProcess(false); return; }
-
     try {
       newBookings.forEach(target => {
         const ref = doc(collection(db, 'artifacts', appId, 'public', 'data', 'bookings'));
@@ -340,34 +434,69 @@ const MemberApp = ({ labName, userName, onLogout }) => {
   
   const handleDeleteBooking = async () => { if(!bookingToDelete) return; await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'bookings', bookingToDelete.id)); await addAuditLog(labName, 'CANCEL', `Cancelled: ${bookingToDelete.instrumentName}`, userName); setBookingToDelete(null); };
 
+  const handleSaveNote = async (msg) => {
+      if(!selectedInstrumentId) return;
+      const inst = instruments.find(i => i.id === selectedInstrumentId);
+      await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'notes'), {
+          labName, instrumentId: inst.id, instrumentName: inst.name, userName, message: msg, timestamp: serverTimestamp()
+      });
+      await addAuditLog(labName, 'NOTE', `Note left on ${inst.name}`, userName);
+      setShowNoteModal(false);
+      alert("Note sent to admin notebook.");
+  };
+
   const weekDays = useMemo(() => { const m = getMonday(date); return Array.from({ length: 7 }, (_, i) => { const d = new Date(m); d.setDate(m.getDate() + i); return d; }); }, [date]);
-  const currentInst = instruments.find(i => i.id === selectedTab);
+  const currentInst = instruments.find(i => i.id === selectedInstrumentId);
 
   return (
-    <div className="min-h-screen bg-slate-50 flex flex-col font-sans text-slate-900 animate-fade-in">
-      <header className="bg-white px-4 py-3 flex justify-between items-center shadow-sm border-b border-slate-100 z-50 sticky top-0 h-14"><div><h1 className="font-bold text-lg text-slate-800">{labName}</h1><div className="flex items-center gap-1 text-xs text-green-600 bg-green-50 px-2 py-0.5 rounded-full w-fit"><ShieldCheck className="w-3 h-3"/> {userName}</div></div><div className="flex gap-2"><div className="flex bg-slate-100 rounded-lg p-1"><button onClick={()=>setViewMode('day')} className={`p-1.5 rounded-md transition ${viewMode==='day'?'bg-white shadow text-blue-600':'text-slate-400'}`}><LayoutGrid className="w-4 h-4"/></button><button onClick={()=>setViewMode('week')} className={`p-1.5 rounded-md transition ${viewMode==='week'?'bg-white shadow text-blue-600':'text-slate-400'}`}><CalendarDays className="w-4 h-4"/></button></div><button onClick={onLogout} className="p-2 text-slate-400 hover:text-slate-600 bg-slate-100 rounded-full"><LogOut className="w-5 h-5"/></button></div></header>
-      <div className="flex items-center justify-between bg-white p-4 shadow-sm border-b border-slate-100 sticky top-14 z-40 h-16"><button onClick={() => setDate(addDays(date, -1))} className="p-2 hover:bg-slate-100 rounded-full"><ChevronLeft className="w-5 h-5 text-slate-600"/></button><div className="text-center"><span className="font-bold text-slate-800 block">{viewMode === 'day' ? date.toLocaleDateString('en-US', { month: 'long', day: 'numeric', weekday: 'short' }) : `${date.getMonth()+1}/${weekDays[0].getDate()} - ${date.getMonth()+1}/${weekDays[6].getDate()}`}</span></div><button onClick={() => setDate(addDays(date, 1))} className="p-2 hover:bg-slate-100 rounded-full"><ChevronRight className="w-5 h-5 text-slate-600"/></button></div>
-      <div className="bg-white border-b border-slate-100 overflow-x-auto no-scrollbar py-2 sticky top-[7.5rem] z-30 h-14 shadow-sm"><div className="flex px-4 gap-2 min-w-max"><button onClick={() => setSelectedTab('overview')} className={`px-4 py-2 rounded-full text-sm font-bold transition flex items-center gap-2 ${selectedTab === 'overview' ? 'bg-slate-800 text-white' : 'bg-slate-100 text-slate-500'}`}><LayoutGrid className="w-4 h-4"/> Overview</button>{instruments.map(inst => { const styles = getColorStyle(inst.color); return (<button key={inst.id} onClick={() => setSelectedTab(inst.id)} className={`px-4 py-2 rounded-full text-sm font-bold transition flex items-center gap-2 ${selectedTab === inst.id ? `${styles.darkBg} text-white shadow-md` : 'bg-slate-100 text-slate-500'}`}><div className={`w-2 h-2 rounded-full ${selectedTab === inst.id ? 'bg-white' : styles.darkBg}`}></div>{inst.name}</button>); })}</div></div>
-      {selectedTab !== 'overview' && currentInst && (
-        <div className="bg-white px-4 py-3 border-b border-slate-100 flex justify-between items-start animate-fade-in">
-            <div className="flex gap-3">
-                {currentInst.image ? <img src={currentInst.image} alt={currentInst.name} className="w-12 h-12 rounded-lg object-cover bg-slate-100" onError={(e) => e.target.style.display='none'} /> : <div className={`w-12 h-12 rounded-lg flex items-center justify-center ${getColorStyle(currentInst.color).bg}`}><span className={`text-lg font-bold uppercase ${getColorStyle(currentInst.color).text}`}>{currentInst.name.slice(0,1)}</span></div>}
-                <div><h2 className="font-bold text-slate-800">{currentInst.name}</h2><div className="flex items-center gap-2 text-xs text-slate-500">{currentInst.location && <span className="flex items-center gap-1"><MapPin className="w-3 h-3"/> {currentInst.location}</span>}</div></div>
-            </div>
-        </div>
-      )}
-      <div className="flex-1 p-4 pb-20 overflow-y-auto">
-          {viewMode === 'day' && (<div className="space-y-3">{hours.map(hour => { const currentDateStr = getFormattedDate(date); const relevantBookings = bookings.filter(b => b.date === currentDateStr && b.hour === hour && (selectedTab === 'overview' || b.instrumentId === selectedTab)); const isMyBooking = relevantBookings.some(b => b.userName === userName); const isBooked = relevantBookings.length > 0; const containerStyles = selectedTab !== 'overview' && currentInst ? getColorStyle(currentInst.color) : { bg: 'bg-white', border: 'border-slate-100', text: 'text-slate-700' }; return (
-            <div key={hour} ref={hour===9 ? hour9Ref : null} className="flex gap-3"><div className="w-10 pt-3 text-right text-xs font-medium text-slate-400">{hour===0?<Moon className="w-3 h-3 inline opacity-50"/>:hour===12?<Sun className="w-3 h-3 inline opacity-50"/>:`${hour}:00`}</div><div onClick={() => { if (selectedTab === 'overview') return; if (isMyBooking) setBookingToDelete(relevantBookings.find(b => b.userName === userName)); else if (!isBooked) setBookingModal({ isOpen: true, date: currentDateStr, hour, instrument: currentInst }); else alert(`Booked by ${relevantBookings[0].userName}`); }} className={`flex-1 min-h-[3.5rem] rounded-2xl border p-3 relative transition-all ${selectedTab === 'overview' ? 'bg-white border-slate-100' : 'cursor-pointer active:scale-[0.98]'} ${selectedTab !== 'overview' && isMyBooking ? `${containerStyles.bg} ${containerStyles.border}` : ''} ${selectedTab !== 'overview' && !isMyBooking && isBooked ? 'bg-slate-100 border-slate-200 opacity-60' : ''} ${selectedTab !== 'overview' && !isBooked ? 'bg-white border-slate-100 hover:border-slate-300' : ''}`}>{selectedTab === 'overview' ? (<div className="flex flex-wrap gap-2">{relevantBookings.length === 0 ? <span className="text-xs text-slate-300 mt-1">Free</span> : relevantBookings.map(b => { const chipStyle = getColorStyle(b.instrumentColor || 'blue'); return <span key={b.id} className={`text-xs px-2 py-1 rounded-md font-medium border ${chipStyle.bg} ${chipStyle.border} ${chipStyle.text}`}>{b.instrumentName} {b.subOption && <span className="opacity-75 text-[10px] ml-1">({b.subOption})</span>}</span>; })}</div>) : (<div className="flex items-center justify-between h-full">{isBooked ? (<div className="flex items-center gap-2"><div className={`p-1.5 rounded-full ${isMyBooking ? 'bg-white/50' : 'bg-slate-200'}`}><User className={`w-3 h-3 ${isMyBooking ? containerStyles.text : 'text-slate-500'}`} /></div><div><div className={`text-sm font-bold leading-tight ${isMyBooking ? containerStyles.text : 'text-slate-500'}`}>{relevantBookings[0].userName} {isMyBooking && '(Me)'}</div>{relevantBookings[0].subOption && <div className={`text-[10px] leading-tight ${isMyBooking ? containerStyles.text : 'text-slate-400'} opacity-80`}>{relevantBookings[0].subOption}</div>}</div></div>) : (<div className="flex items-center gap-2 opacity-0 hover:opacity-100 transition-opacity"><Plus className="w-4 h-4 text-indigo-400"/> <span className="text-xs text-indigo-400 font-bold">Book</span></div>)}{isMyBooking && <CheckCircle2 className={`w-5 h-5 ${containerStyles.text}`}/>}</div>)}</div></div>
-          );})}</div>)}
-          
-          {viewMode === 'week' && (selectedTab === 'overview' ? (<div className="text-center py-20 text-slate-400"><LayoutGrid className="w-12 h-12 mx-auto mb-4 opacity-20"/><p>Overview not supported in Week View</p></div>) : (<div className="overflow-x-auto pb-4"><div className="min-w-[600px]"><div className="grid grid-cols-8 gap-1 mb-2 sticky top-[11rem] z-20 bg-slate-50 py-2 shadow-sm"><div className="w-10 bg-slate-50"></div>{weekDays.map((d, i) => (<div key={i} className={`text-center p-2 rounded-lg ${getFormattedDate(d) === getFormattedDate(new Date()) ? 'bg-blue-50 text-blue-600 font-bold' : 'text-slate-500'}`}><div className="text-xs">{['Mon','Tue','Wed','Thu','Fri','Sat','Sun'][d.getDay()===0?6:d.getDay()-1]}</div><div className="text-sm font-bold">{d.getDate()}</div></div>))}</div><div className="space-y-2">{hours.map(hour => (<div key={hour} ref={hour===9?hour9Ref:null} className="grid grid-cols-8 gap-1 h-12"><div className="text-xs text-slate-400 text-right pr-2 pt-4 sticky left-0 bg-slate-50 z-10 border-r border-slate-100">{hour===0?<Moon className="w-3 h-3 inline opacity-50"/>:hour===12?<Sun className="w-3 h-3 inline opacity-50"/>:`${hour}:00`}</div>{weekDays.map((day, i) => {const dateStr = getFormattedDate(day); const booking = bookings.find(b => b.instrumentId === selectedTab && b.date === dateStr && b.hour === hour); const isMyBooking = booking?.userName === userName; const instStyles = getColorStyle(currentInst?.color || 'blue'); return (<div key={i} onClick={() => { if (isMyBooking) setBookingToDelete(booking); else if (!booking && selectedTab !== 'overview') setBookingModal({isOpen:true, date:dateStr, hour, instrument: currentInst}); }} className={`rounded-lg border transition-all cursor-pointer relative ${isMyBooking ? `${instStyles.bg} ${instStyles.border}` : ''} ${!isMyBooking && booking ? 'bg-slate-200 border-slate-300' : 'bg-white border-slate-100 hover:border-indigo-300'}`}>{booking && (<div className="flex flex-col items-center justify-center h-full leading-none">{isMyBooking ? <CheckCircle2 className={`w-3 h-3 ${instStyles.text}`}/> : <span className="text-[10px] text-slate-500 truncate px-1 max-w-full">{booking.userName}</span>}{booking.subOption && <span className={`text-[8px] truncate max-w-full px-0.5 ${isMyBooking ? instStyles.text : 'text-slate-400'}`}>{booking.subOption}</span>}</div>)}</div>); })}</div>))}</div></div></div>))}
+    <div className="flex flex-col h-screen bg-slate-50 font-sans text-slate-900 animate-fade-in overflow-hidden">
+      {/* Fixed Header */}
+      <div className="flex-none z-50 bg-white shadow-sm">
+          <header className="px-4 py-3 flex justify-between items-center border-b border-slate-100">
+            <div><h1 className="font-bold text-lg text-slate-800">{labName}</h1><div className="flex items-center gap-1 text-xs text-green-600 bg-green-50 px-2 py-0.5 rounded-full w-fit"><ShieldCheck className="w-3 h-3"/> {userName}</div></div>
+            <button onClick={onLogout} className="p-2 text-slate-400 hover:text-slate-600 bg-slate-100 rounded-full"><LogOut className="w-5 h-5"/></button>
+          </header>
+          <div className="p-4 border-b border-slate-100">
+              <button onClick={() => setShowSelectionModal(true)} className={`w-full p-3 rounded-xl flex items-center justify-between shadow-md transition ${selectedInstrumentId ? 'bg-white border border-slate-200 text-slate-800' : 'bg-indigo-600 text-white'}`}>
+                 <div className="flex items-center gap-3"><div className={`p-1.5 rounded-lg ${selectedInstrumentId ? 'bg-slate-100' : 'bg-white/20'}`}>{selectedInstrumentId ? <ArrowRightLeft className="w-4 h-4"/> : <LayoutGrid className="w-4 h-4 text-white"/>}</div><div className="text-left"><div className={`text-xs font-medium ${selectedInstrumentId ? 'text-slate-400' : 'text-indigo-200'}`}>{selectedInstrumentId ? 'Current Device' : 'View Mode'}</div><div className="font-bold">{currentInst ? currentInst.name : 'Overview (All Devices)'}</div></div></div><ChevronRight className={`w-5 h-5 ${selectedInstrumentId ? 'text-slate-400' : 'text-indigo-200'}`}/>
+              </button>
+          </div>
+          <div className="flex items-center justify-between px-4 py-2 border-b border-slate-100">
+             {selectedInstrumentId ? (<div className="flex bg-slate-100 rounded-lg p-1 mr-2"><button onClick={()=>setViewMode('day')} className={`p-1.5 rounded-md transition ${viewMode==='day'?'bg-white shadow text-blue-600':'text-slate-400'}`}><LayoutGrid className="w-4 h-4"/></button><button onClick={()=>setViewMode('week')} className={`p-1.5 rounded-md transition ${viewMode==='week'?'bg-white shadow text-blue-600':'text-slate-400'}`}><CalendarDays className="w-4 h-4"/></button></div>) : (<div className="text-xs font-bold text-indigo-600 bg-indigo-50 px-2 py-1 rounded">Day View</div>)}
+             <div className="flex items-center gap-4 flex-1 justify-end"><button onClick={() => setDate(addDays(date, (viewMode === 'day' || !selectedInstrumentId) ? -1 : -7))} className="p-1.5 hover:bg-slate-100 rounded-full"><ChevronLeft className="w-5 h-5 text-slate-600"/></button><div className="text-center w-28"><span className="font-bold text-slate-800 block text-sm">{(viewMode === 'day' || !selectedInstrumentId) ? date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : `${date.getMonth()+1}/${weekDays[0].getDate()} - ${weekDays[6].getDate()}`}</span></div><button onClick={() => setDate(addDays(date, 1))} className="p-1.5 hover:bg-slate-100 rounded-full"><ChevronRight className="w-5 h-5 text-slate-600"/></button></div>
+          </div>
+          {selectedInstrumentId && currentInst && (
+             <div className="px-4 py-2 bg-slate-50 text-xs text-slate-500 flex items-center gap-2 border-b border-slate-200">
+                <MapPin className="w-3 h-3"/> {currentInst.location || 'No Location'}
+                <button onClick={()=>setShowNoteModal(true)} className="ml-auto flex items-center gap-1 bg-yellow-100 text-yellow-700 px-2 py-0.5 rounded hover:bg-yellow-200 transition"><StickyNote className="w-3 h-3"/> Report / Note</button>
+             </div>
+          )}
+      </div>
+
+      {/* Content */}
+      <div className="flex-1 overflow-y-auto relative">
+        {/* A. OVERVIEW */}
+        {!selectedInstrumentId && (
+           <div className="flex min-w-max">
+               <div className="w-14 flex-shrink-0 bg-slate-50 border-r border-slate-100 sticky left-0 z-20">{hours.map(h => <div key={h} ref={h===9?hour9Ref:null} className="h-20 text-xs text-slate-400 text-right pr-2 pt-2 border-b border-slate-100">{h}:00</div>)}</div>
+               <div className="flex">{instruments.map(inst => { const styles = getColorStyle(inst.color); return (<div key={inst.id} className="w-32 border-r border-slate-100"><div className={`h-8 flex items-center justify-center text-[10px] font-bold ${styles.bg} ${styles.text} sticky top-0 z-10 border-b border-blue-100`}>{inst.name}</div>{hours.map(h => { const currentDateStr = getFormattedDate(date); const booking = bookings.find(b => b.instrumentId === inst.id && b.date === currentDateStr && b.hour === h); const isMyBooking = booking?.userName === userName; return (<div key={h} onClick={() => { if (isMyBooking) setBookingToDelete(booking); else if (!booking) setBookingModal({ isOpen: true, date: currentDateStr, hour: h, instrument: inst }); else alert(`Booked by ${booking.userName}`); }} className={`h-20 border-b border-slate-50 p-1 transition-all cursor-pointer hover:bg-slate-50 ${booking ? (isMyBooking ? `${styles.bg} border-l-4 ${styles.border.replace('border','border-l')}` : 'bg-slate-100 text-slate-400') : ''}`}>{booking ? ( <div className="h-full flex flex-col justify-center leading-tight"><div className={`text-[10px] font-bold truncate ${isMyBooking ? styles.text : 'text-slate-500'}`}>{booking.userName}</div>{booking.subOption && <div className="text-[8px] opacity-70 truncate">{booking.subOption}</div>}</div> ) : ( <div className="h-full flex items-center justify-center opacity-0 hover:opacity-100 text-slate-300"><Plus className="w-4 h-4"/></div> )}</div>); })}</div>) })}</div>
+           </div>
+        )}
+        {/* B. SINGLE DAY */}
+        {selectedInstrumentId && viewMode === 'day' && (
+            <div className="p-4 space-y-3">{hours.map(hour => { const currentDateStr = getFormattedDate(date); const booking = bookings.find(b => b.instrumentId === selectedInstrumentId && b.date === currentDateStr && b.hour === hour); const isMyBooking = booking?.userName === userName; const isBooked = !!booking; const containerStyles = getColorStyle(currentInst?.color || 'blue'); return (<div key={hour} ref={hour===9 ? hour9Ref : null} className="flex gap-3"><div className="w-10 pt-3 text-right text-xs font-medium text-slate-400">{hour}:00</div><div onClick={() => { if (isMyBooking) setBookingToDelete(booking); else if (!isBooked) setBookingModal({ isOpen: true, date: currentDateStr, hour, instrument: currentInst }); else alert(`Booked by ${booking.userName}`); }} className={`flex-1 min-h-[3.5rem] rounded-2xl border p-3 relative transition-all ${isMyBooking ? `${containerStyles.bg} ${containerStyles.border}` : ''} ${!isMyBooking && isBooked ? 'bg-slate-100 border-slate-200 opacity-60' : ''} ${!isBooked ? 'bg-white border-slate-100 hover:border-slate-300' : ''}`}>{isBooked ? (<div className="flex items-center gap-2"><div className={`p-1.5 rounded-full ${isMyBooking ? 'bg-white/50' : 'bg-slate-200'}`}><User className={`w-3 h-3 ${isMyBooking ? containerStyles.text : 'text-slate-500'}`} /></div><div><div className={`text-sm font-bold leading-tight ${isMyBooking ? containerStyles.text : 'text-slate-500'}`}>{booking.userName} {isMyBooking && '(Me)'}</div>{booking.subOption && <div className={`text-[10px] leading-tight ${isMyBooking ? containerStyles.text : 'text-slate-400'} opacity-80`}>{booking.subOption}</div>}</div></div>) : (<div className="flex items-center gap-2 opacity-0 hover:opacity-100 transition-opacity"><Plus className="w-4 h-4 text-indigo-400"/> <span className="text-xs text-indigo-400 font-bold">Book</span></div>)}{isMyBooking && <CheckCircle2 className={`w-5 h-5 ${containerStyles.text} absolute top-3 right-3`}/>}</div></div>);})}</div>
+        )}
+        {/* C. SINGLE WEEK */}
+        {selectedInstrumentId && viewMode === 'week' && (
+            <div className="overflow-x-auto pb-4"><div className="min-w-[600px]"><div className="grid grid-cols-8 gap-1 mb-2 sticky top-0 z-20 bg-slate-50 py-2 shadow-sm"><div className="w-10 bg-slate-50"></div>{weekDays.map((d, i) => (<div key={i} className={`text-center p-2 rounded-lg ${getFormattedDate(d) === getFormattedDate(new Date()) ? 'bg-blue-50 text-blue-600 font-bold' : 'text-slate-500'}`}><div className="text-xs">{['Mon','Tue','Wed','Thu','Fri','Sat','Sun'][d.getDay()===0?6:d.getDay()-1]}</div><div className="text-sm font-bold">{d.getDate()}</div></div>))}</div><div className="space-y-2">{hours.map(hour => (<div key={hour} ref={hour===9?hour9Ref:null} className="grid grid-cols-8 gap-1 h-12"><div className="text-xs text-slate-400 text-right pr-2 pt-4 sticky left-0 bg-slate-50 z-10 border-r border-slate-100">{hour}:00</div>{weekDays.map((day, i) => {const dateStr = getFormattedDate(day); const booking = bookings.find(b => b.instrumentId === currentInst.id && b.date === dateStr && b.hour === hour); const isMyBooking = booking?.userName === userName; const instStyles = getColorStyle(currentInst.color); return (<div key={i} onClick={() => { if (isMyBooking) setBookingToDelete(booking); else if (!booking) setBookingModal({isOpen:true, date:dateStr, hour, instrument: currentInst}); }} className={`rounded-lg border transition-all cursor-pointer relative ${isMyBooking ? `${instStyles.bg} ${instStyles.border}` : ''} ${!isMyBooking && booking ? 'bg-slate-200 border-slate-300' : 'bg-white border-slate-100 hover:border-indigo-300'}`}>{booking && (<div className="flex flex-col items-center justify-center h-full leading-none">{isMyBooking ? <CheckCircle2 className={`w-3 h-3 ${instStyles.text}`}/> : <span className="text-[10px] text-slate-500 truncate px-1 max-w-full">{booking.userName}</span>}{booking.subOption && <span className={`text-[8px] truncate max-w-full px-0.5 ${isMyBooking ? instStyles.text : 'text-slate-400'}`}>{booking.subOption}</span>}</div>)}</div>); })}</div>))}</div></div></div>
+        )}
       </div>
 
       {/* Modals */}
+      <InstrumentSelectionModal isOpen={showSelectionModal} onClose={()=>setShowSelectionModal(false)} instruments={instruments} onSelect={(id) => { setSelectedInstrumentId(id); setShowSelectionModal(false); }} currentId={selectedInstrumentId} />
       {bookingToDelete && (<div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-6 backdrop-blur-sm animate-fade-in"><div className="bg-white w-full max-w-xs rounded-3xl p-6 shadow-2xl text-center relative"><button onClick={()=>setBookingToDelete(null)} className="absolute top-4 right-4 text-slate-300"><X className="w-5 h-5"/></button><div className="bg-red-100 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4"><AlertCircle className="w-8 h-8 text-red-500" /></div><h3 className="text-xl font-bold text-slate-800 mb-2">Cancel Booking?</h3><p className="text-slate-500 text-sm mb-6"><span className="font-bold">{bookingToDelete.instrumentName}</span> <br/> <span className="text-indigo-500 text-xs">{bookingToDelete.subOption ? `(${bookingToDelete.subOption})` : ''}</span></p><div className="flex gap-3"><button onClick={()=>setBookingToDelete(null)} className="flex-1 py-3 text-slate-600 font-bold bg-slate-100 rounded-xl">Keep</button><button onClick={handleDeleteBooking} className="flex-1 py-3 bg-red-500 text-white font-bold rounded-xl shadow-lg shadow-red-200">Confirm Cancel</button></div></div></div>)}
       <BookingModal isOpen={bookingModal.isOpen} onClose={() => setBookingModal({...bookingModal, isOpen: false})} initialDate={bookingModal.date} initialHour={bookingModal.hour} instrument={bookingModal.instrument} onConfirm={handleConfirmBooking} isBooking={isBookingProcess} />
-      <style>{`.no-scrollbar::-webkit-scrollbar{display:none}.no-scrollbar{-ms-overflow-style:none;scrollbar-width:none}@keyframes fade-in{from{opacity:0}to{opacity:1}}@keyframes slide-up{from{transform:translateY(20px);opacity:0}to{transform:translateY(0);opacity:1}}.animate-fade-in{animation:fade-in 0.3s ease-out}.animate-slide-up{animation:slide-up 0.4s cubic-bezier(0.16,1,0.3,1)}`}</style>
+      <NoteModal isOpen={showNoteModal} onClose={()=>setShowNoteModal(false)} instrument={currentInst} userName={userName} onSave={handleSaveNote} />
     </div>
   );
 };
@@ -383,7 +512,9 @@ const IdentityScreen = ({ labName, onIdentityVerified }) => {
 
 export default function App() {
   const [user, setUser] = useState(null); const [appData, setAppData] = useState({ role: null, labName: null, userName: null }); const [identityStage, setIdentityStage] = useState(false);
-  useEffect(() => { const initAuth = async () => { if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) await signInWithCustomToken(auth, __initial_auth_token); else await signInAnonymously(auth); }; initAuth(); onAuthStateChanged(auth, setUser); }, []);
+  useEffect(() => { const initAuth = async () => { 
+    try { if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) { await signInWithCustomToken(auth, __initial_auth_token); } else { await signInAnonymously(auth); } } catch (e) { await signInAnonymously(auth); }
+  }; initAuth(); onAuthStateChanged(auth, setUser); }, []);
   const handleLoginSuccess = ({ role, labName }) => { if (role === 'ADMIN') { setAppData({ role, labName, userName: 'Administrator' }); } else { setAppData({ role, labName, userName: null }); setIdentityStage(true); } };
   const handleIdentityVerified = (userName) => { setAppData(prev => ({ ...prev, userName })); setIdentityStage(false); };
   if (!user) return <div className="flex items-center justify-center min-h-screen"><Loader2 className="animate-spin text-slate-400"/></div>;
@@ -392,3 +523,5 @@ export default function App() {
   if (identityStage) return <IdentityScreen labName={appData.labName} onIdentityVerified={handleIdentityVerified} />;
   return <MemberApp labName={appData.labName} userName={appData.userName} onLogout={() => setAppData({role:null, labName:null, userName:null})} />;
 }
+
+
