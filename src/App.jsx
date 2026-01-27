@@ -14,7 +14,7 @@ import {
   onSnapshot, 
   addDoc, 
   deleteDoc, 
-  updateDoc, // Added for editing
+  updateDoc, 
   getDocs,
   doc,
   serverTimestamp,
@@ -26,7 +26,7 @@ import {
   Calendar as CalendarIcon, ChevronLeft, ChevronRight, Plus, Trash2, User, LogOut, Lock, Loader2, 
   LayoutGrid, CheckCircle2, ShieldCheck, Fingerprint, AlertCircle, X, Repeat, CalendarDays, MapPin, 
   Image as ImageIcon, Palette, Sun, Moon, Clock, ShieldAlert, History, Settings, Users, Beaker,
-  ListPlus, Plug, ArrowRightLeft, Search, LayoutDashboard, Pencil, Book, StickyNote
+  ListPlus, Plug, ArrowRightLeft, Search, LayoutDashboard, Pencil, Book, StickyNote, Link2
 } from 'lucide-react';
 
 // --- Firebase Init ---
@@ -150,17 +150,15 @@ const GateScreen = ({ onLoginSuccess }) => {
 const AdminDashboard = ({ labName, onLogout }) => {
   const [instruments, setInstruments] = useState([]);
   const [logs, setLogs] = useState([]);
-  const [notes, setNotes] = useState([]); // New Notes
+  const [notes, setNotes] = useState([]); 
   const [activeTab, setActiveTab] = useState('INSTRUMENTS'); 
   const [showInstrumentModal, setShowInstrumentModal] = useState(false);
-  const [editingInstrument, setEditingInstrument] = useState(null); // New Edit State
+  const [editingInstrument, setEditingInstrument] = useState(null); 
 
   useEffect(() => {
-    // Instruments
     const qInst = query(collection(db, 'artifacts', appId, 'public', 'data', 'instruments'), where('labName', '==', labName));
     const unsubInst = onSnapshot(qInst, (snap) => setInstruments(snap.docs.map(d => ({ id: d.id, ...d.data() }))));
     
-    // Logs (Fixed: Removed orderBy to avoid index errors, sorting in memory)
     const qLogs = query(collection(db, 'artifacts', appId, 'public', 'data', 'logs'), where('labName', '==', labName));
     const unsubLogs = onSnapshot(qLogs, (snap) => {
         const data = snap.docs.map(d => ({ id: d.id, ...d.data() }));
@@ -168,7 +166,6 @@ const AdminDashboard = ({ labName, onLogout }) => {
         setLogs(data);
     });
 
-    // Notes
     const qNotes = query(collection(db, 'artifacts', appId, 'public', 'data', 'notes'), where('labName', '==', labName));
     const unsubNotes = onSnapshot(qNotes, (snap) => {
         const data = snap.docs.map(d => ({ id: d.id, ...d.data() }));
@@ -255,18 +252,19 @@ const AdminDashboard = ({ labName, onLogout }) => {
                 <div className="bg-white rounded-3xl p-6 shadow-sm"><h2 className="text-xl font-bold text-slate-800 mb-6">System Logs</h2><div className="overflow-hidden rounded-xl border border-slate-100"><table className="w-full text-sm text-left"><thead className="bg-slate-50 text-slate-500 font-medium"><tr><th className="p-4">Time</th><th className="p-4">User</th><th className="p-4">Action</th><th className="p-4">Details</th></tr></thead><tbody className="divide-y divide-slate-100">{logs.map(log => (<tr key={log.id} className="hover:bg-slate-50"><td className="p-4 text-slate-400 font-mono text-xs">{formatTime(log.timestamp)}</td><td className="p-4 font-bold text-slate-700">{log.userName}</td><td className="p-4"><span className={`px-2 py-1 rounded text-xs font-bold ${log.action.includes('DEL') || log.action.includes('CANCEL') ? 'bg-red-100 text-red-600' : 'bg-blue-100 text-blue-600'}`}>{log.action}</span></td><td className="p-4 text-slate-600">{log.message}</td></tr>))}</tbody></table></div></div>
             )}
         </div>
-        <InstrumentModal isOpen={showInstrumentModal} onClose={()=>setShowInstrumentModal(false)} onSave={handleSaveInstrument} initialData={editingInstrument} />
+        <InstrumentModal isOpen={showInstrumentModal} onClose={()=>setShowInstrumentModal(false)} onSave={handleSaveInstrument} initialData={editingInstrument} existingInstruments={instruments} />
     </div>
   );
 };
 
-// 3. Instrument Modal (Unified Add/Edit)
-const InstrumentModal = ({ isOpen, onClose, onSave, initialData }) => {
+// 3. Instrument Modal (With Conflicts Support)
+const InstrumentModal = ({ isOpen, onClose, onSave, initialData, existingInstruments = [] }) => {
   const [name, setName] = useState('');
   const [location, setLocation] = useState('');
   const [image, setImage] = useState('');
   const [subOptionsStr, setSubOptionsStr] = useState('');
   const [color, setColor] = useState('blue');
+  const [selectedConflicts, setSelectedConflicts] = useState([]); // Array of IDs
 
   useEffect(() => {
       if (initialData) {
@@ -275,8 +273,9 @@ const InstrumentModal = ({ isOpen, onClose, onSave, initialData }) => {
           setImage(initialData.image || '');
           setSubOptionsStr(initialData.subOptions ? initialData.subOptions.join(', ') : '');
           setColor(initialData.color || 'blue');
+          setSelectedConflicts(initialData.conflicts || []);
       } else {
-          setName(''); setLocation(''); setImage(''); setSubOptionsStr(''); setColor('blue');
+          setName(''); setLocation(''); setImage(''); setSubOptionsStr(''); setColor('blue'); setSelectedConflicts([]);
       }
   }, [initialData, isOpen]);
 
@@ -285,7 +284,15 @@ const InstrumentModal = ({ isOpen, onClose, onSave, initialData }) => {
       e.preventDefault(); 
       if (!name.trim()) return; 
       const subOptions = subOptionsStr.split(/[,，\n]/).map(s => s.trim()).filter(s => s);
-      onSave({ name, location, image, color, subOptions }); 
+      onSave({ name, location, image, color, subOptions, conflicts: selectedConflicts }); 
+  };
+
+  const toggleConflict = (id) => {
+      if (selectedConflicts.includes(id)) {
+          setSelectedConflicts(selectedConflicts.filter(cid => cid !== id));
+      } else {
+          setSelectedConflicts([...selectedConflicts, id]);
+      }
   };
 
   return (
@@ -299,6 +306,24 @@ const InstrumentModal = ({ isOpen, onClose, onSave, initialData }) => {
                     <label className="text-xs font-bold text-slate-400 uppercase ml-1 flex items-center gap-1"><ListPlus className="w-3 h-3"/> Accessories (Optional)</label>
                     <textarea value={subOptionsStr} onChange={e=>setSubOptionsStr(e.target.value)} placeholder="e.g. Dry, Wet (comma separated)" className="w-full border-2 border-slate-100 p-3 rounded-xl focus:border-slate-800 outline-none text-sm h-20 resize-none"/>
                 </div>
+                
+                {/* Conflict Selection */}
+                <div>
+                    <label className="text-xs font-bold text-slate-400 uppercase ml-1 flex items-center gap-1 mb-2"><Link2 className="w-3 h-3"/> Mutually Exclusive Devices (Conflict)</label>
+                    <div className="bg-slate-50 border-2 border-slate-100 rounded-xl p-3 max-h-32 overflow-y-auto">
+                        {existingInstruments.filter(i => i.id !== (initialData?.id)).length === 0 && <p className="text-xs text-slate-400">No other devices available.</p>}
+                        {existingInstruments.filter(i => i.id !== (initialData?.id)).map(inst => (
+                            <div key={inst.id} onClick={() => toggleConflict(inst.id)} className={`flex items-center gap-2 p-2 rounded-lg cursor-pointer transition ${selectedConflicts.includes(inst.id) ? 'bg-red-50 text-red-700 font-bold' : 'hover:bg-white text-slate-600'}`}>
+                                <div className={`w-4 h-4 rounded border flex items-center justify-center ${selectedConflicts.includes(inst.id) ? 'border-red-500 bg-red-500' : 'border-slate-300'}`}>
+                                    {selectedConflicts.includes(inst.id) && <CheckCircle2 className="w-3 h-3 text-white"/>}
+                                </div>
+                                <span className="text-sm">{inst.name}</span>
+                            </div>
+                        ))}
+                    </div>
+                    <p className="text-[10px] text-slate-400 mt-1 ml-1">Booking this will block selected devices at same time.</p>
+                </div>
+
                 <div><label className="text-xs font-bold text-slate-400 uppercase ml-1">Image URL</label><input type="text" value={image} onChange={e=>setImage(e.target.value)} className="w-full border-2 border-slate-100 p-3 rounded-xl focus:border-slate-800 outline-none text-xs"/></div>
                 <div className="grid grid-cols-4 gap-3">{COLOR_PALETTE.map(c => (<div key={c.id} onClick={() => setColor(c.id)} className={`h-10 rounded-lg cursor-pointer flex items-center justify-center ${c.darkBg} ${color === c.id ? 'ring-4 ring-offset-2 ring-slate-200 scale-105' : 'opacity-70'}`}>{color === c.id && <CheckCircle2 className="w-5 h-5 text-white"/>}</div>))}</div>
                 <div className="flex gap-3 mt-6"><button type="button" onClick={onClose} className="flex-1 py-3 text-slate-500 font-bold bg-slate-50 rounded-xl">Cancel</button><button type="submit" className="flex-1 py-3 bg-slate-900 text-white font-bold rounded-xl">{initialData ? 'Save Changes' : 'Confirm Add'}</button></div>
@@ -308,7 +333,7 @@ const InstrumentModal = ({ isOpen, onClose, onSave, initialData }) => {
   );
 };
 
-// 4. Note Modal
+// 4. Note Modal (Unchanged)
 const NoteModal = ({ isOpen, onClose, instrument, userName, onSave }) => {
     const [msg, setMsg] = useState('');
     if (!isOpen) return null;
@@ -327,7 +352,7 @@ const NoteModal = ({ isOpen, onClose, instrument, userName, onSave }) => {
     )
 }
 
-// 5. Booking Modal
+// 5. Booking Modal (Unchanged)
 const BookingModal = ({ isOpen, onClose, initialDate, initialHour, instrument, onConfirm, isBooking }) => {
   if (!isOpen) return null;
   const [repeatOption, setRepeatOption] = useState(0); 
@@ -407,9 +432,36 @@ const MemberApp = ({ labName, userName, onLogout }) => {
     const { date: startDateStr, hour: startHour, instrument } = bookingModal; const startDate = new Date(startDateStr); const batch = writeBatch(db); const newBookings = []; const targetDates = [];
     for (let i = 0; i <= repeatCount; i++) { const d = new Date(startDate); d.setDate(startDate.getDate() + (i * 7)); targetDates.push(getFormattedDate(d)); }
     targetDates.forEach(dStr => { if (isFullDay) { for (let h = 0; h < 24; h++) newBookings.push({ date: dStr, hour: h }); } else { newBookings.push({ date: dStr, hour: startHour }); } });
+    
     const conflicts = [];
-    newBookings.forEach(target => { const isTaken = bookings.some(b => b.instrumentId === instrument.id && b.date === target.date && b.hour === target.hour); if (isTaken && !conflicts.includes(target.date)) conflicts.push(target.date); });
-    if (conflicts.length > 0) { alert(`Conflict: ${conflicts.join(', ')}`); setIsBookingProcess(false); return; }
+    
+    // CONFLICT CHECK LOGIC (Bidirectional)
+    // 1. Get List of "Enemy" IDs (This instrument's conflicts + any instrument that lists this as conflict)
+    const thisInstrumentConflicts = instrument.conflicts || [];
+    const enemyInstruments = instruments.filter(i => 
+        thisInstrumentConflicts.includes(i.id) || (i.conflicts && i.conflicts.includes(instrument.id))
+    );
+    const enemyIds = enemyInstruments.map(i => i.id);
+
+    newBookings.forEach(target => { 
+        // Check if THIS instrument is taken
+        const isTaken = bookings.some(b => b.instrumentId === instrument.id && b.date === target.date && b.hour === target.hour); 
+        
+        // Check if ANY ENEMY is taken
+        const isEnemyTaken = bookings.some(b => enemyIds.includes(b.instrumentId) && b.date === target.date && b.hour === target.hour);
+        const enemyBooking = bookings.find(b => enemyIds.includes(b.instrumentId) && b.date === target.date && b.hour === target.hour);
+
+        if (isTaken) {
+            if (!conflicts.includes(`${target.date} (Occupied)`)) conflicts.push(`${target.date} (Occupied)`);
+        }
+        if (isEnemyTaken) {
+            const enemyName = enemyInstruments.find(i => i.id === enemyBooking.instrumentId)?.name || "Conflict Device";
+            if (!conflicts.includes(`${target.date} (Conflict with ${enemyName})`)) conflicts.push(`${target.date} (Conflict with ${enemyName})`);
+        }
+    });
+
+    if (conflicts.length > 0) { alert(`Cannot book due to conflicts:\n${conflicts.join('\n')}`); setIsBookingProcess(false); return; }
+    
     try {
       newBookings.forEach(target => {
         const ref = doc(collection(db, 'artifacts', appId, 'public', 'data', 'bookings'));
@@ -523,5 +575,3 @@ export default function App() {
   if (identityStage) return <IdentityScreen labName={appData.labName} onIdentityVerified={handleIdentityVerified} />;
   return <MemberApp labName={appData.labName} userName={appData.userName} onLogout={() => setAppData({role:null, labName:null, userName:null})} />;
 }
-
-
