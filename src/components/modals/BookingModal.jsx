@@ -39,8 +39,18 @@ const BookingModal = ({ isOpen, onClose, initialDate, initialHour, instrument, o
 
           {maxCap > 1 && (
             <div className="bg-indigo-50 p-4 rounded-xl border border-indigo-100">
-              <label className="text-xs font-bold text-indigo-600 uppercase flex items-center gap-1 mb-2"><Beaker className="w-3 h-3"/> Samples (Max {maxCap})</label>
-              <input type="number" min="1" max={maxCap} value={quantity} onChange={e=>setQuantity(Math.min(maxCap, Math.max(1, Number(e.target.value))))} className="w-full p-2 rounded-lg border-2 border-indigo-200 outline-none font-bold text-indigo-700"/>
+              <label className="text-xs font-bold text-indigo-600 uppercase flex items-center gap-1 mb-2">
+                <Beaker className="w-3 h-3"/> Samples (Max {maxCap})
+              </label>
+              {/* 关键修改点：添加 text-base (16px) 防止移动端缩放 */}
+              <input 
+                type="number" 
+                min="1" 
+                max={maxCap} 
+                value={quantity} 
+                onChange={e=>setQuantity(Math.min(maxCap, Math.max(1, Number(e.target.value))))} 
+                className="w-full p-3 rounded-lg border-2 border-indigo-200 outline-none font-medium text-base text-indigo-700"
+              />
             </div>
           )}
 
