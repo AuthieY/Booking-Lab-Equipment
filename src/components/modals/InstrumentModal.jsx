@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { X, Wrench, CheckCircle2, ListPlus, Link2 } from 'lucide-react';
-import { COLOR_PALETTE, getColorStyle } from '../../utils/helpers';
+import { Wrench, CheckCircle2, Link2 } from 'lucide-react';
+import { COLOR_PALETTE } from '../../utils/helpers';
 
 const InstrumentModal = ({ isOpen, onClose, onSave, initialData, existingInstruments = [] }) => {
   const [name, setName] = useState('');
@@ -71,7 +71,23 @@ const InstrumentModal = ({ isOpen, onClose, onSave, initialData, existingInstrum
             </div>
           </div>
 
-          <div className="grid grid-cols-4 gap-3">{COLOR_PALETTE.map(c => (<div key={c.id} onClick={() => setColor(c.id)} className={`h-10 rounded-lg cursor-pointer flex items-center justify-center ${c.darkBg} ${color === c.id ? 'ring-4 ring-offset-2 ring-slate-200' : 'opacity-70'}`}>{color === c.id && <CheckCircle2 className="w-5 h-5 text-white"/>}</div>))}</div>
+          <div>
+            <label className="text-xs font-bold text-slate-400 uppercase">Color Theme</label>
+            <div className="grid grid-cols-5 gap-2 mt-2">
+              {COLOR_PALETTE.map(c => (
+                <button
+                  key={c.id}
+                  type="button"
+                  onClick={() => setColor(c.id)}
+                  className={`h-11 rounded-lg cursor-pointer flex items-center justify-center ${c.darkBg} ${color === c.id ? 'ring-4 ring-offset-2 ring-slate-200' : 'opacity-80 hover:opacity-100'} transition`}
+                  title={c.label || c.id}
+                >
+                  {color === c.id && <CheckCircle2 className="w-5 h-5 text-white"/>}
+                </button>
+              ))}
+            </div>
+            <div className="text-[11px] text-slate-500 mt-2">Selected: {COLOR_PALETTE.find(c => c.id === color)?.label || color}</div>
+          </div>
           <div className="flex gap-3 mt-4"><button type="button" onClick={onClose} className="flex-1 py-3 text-slate-500 font-bold bg-slate-50 rounded-xl">Cancel</button><button type="submit" className="flex-1 py-3 bg-slate-900 text-white font-bold rounded-xl">Save</button></div>
         </form>
       </div>

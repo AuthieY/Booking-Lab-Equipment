@@ -1,9 +1,9 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { 
   collection, query, where, onSnapshot, addDoc, deleteDoc, updateDoc, doc, serverTimestamp 
 } from 'firebase/firestore';
 import { 
-  ShieldCheck, LogOut, Settings, Book, History, Plus, Pencil, Trash2, MapPin, Wrench, MessageSquare, AlertTriangle
+  ShieldCheck, LogOut, Settings, Book, History, Plus, Pencil, Trash2, MapPin, Wrench, MessageSquare, ChevronDown, ChevronRight
 } from 'lucide-react';
 import { db, appId, addAuditLog } from '../../api/firebase';
 import { formatTime, getColorStyle } from '../../utils/helpers';
@@ -13,6 +13,11 @@ const AdminDashboard = ({ labName, onLogout }) => {
   const [instruments, setInstruments] = useState([]);
   const [logs, setLogs] = useState([]);
   const [notes, setNotes] = useState([]); 
+  const [openedInstrumentNotes, setOpenedInstrumentNotes] = useState({});
+  const [expandedNotesByInstrument, setExpandedNotesByInstrument] = useState({});
+  const [openedLogMonths, setOpenedLogMonths] = useState({});
+  const [openedLogUsers, setOpenedLogUsers] = useState({});
+  const [showAllUserLogs, setShowAllUserLogs] = useState({});
   const [activeTab, setActiveTab] = useState('INSTRUMENTS'); 
   const [showInstrumentModal, setShowInstrumentModal] = useState(false);
   const [editingInstrument, setEditingInstrument] = useState(null); 
@@ -24,10 +29,24 @@ const AdminDashboard = ({ labName, onLogout }) => {
     
     // 2. 监听日志数据
     const qLogs = query(collection(db, 'artifacts', appId, 'public', 'data', 'logs'), where('labName', '==', labName));
-    const unsubLogs = onSnapshot(qLogs, (snap) => {
+    const unsubLogs = onSnapshot(qLogs, async (snap) => {
+        const cutoff = new Date();
+        cutoff.setMonth(cutoff.getMonth() - 2);
+        const oldDocs = snap.docs.filter((d) => {
+          const tsDate = d.data().timestamp?.toDate?.();
+          return tsDate && tsDate < cutoff;
+        });
+        if (oldDocs.length > 0) {
+          await Promise.all(oldDocs.map((d) => deleteDoc(d.ref)));
+        }
+
         const data = snap.docs.map(d => ({ id: d.id, ...d.data() }));
         data.sort((a, b) => (b.timestamp?.seconds || 0) - (a.timestamp?.seconds || 0));
-        setLogs(data);
+        const recentOnly = data.filter((l) => {
+          const tsDate = l.timestamp?.toDate?.();
+          return tsDate && tsDate >= cutoff;
+        });
+        setLogs(recentOnly);
     });
 
     // 3. 监听笔记/报告数据
@@ -64,6 +83,75 @@ const AdminDashboard = ({ labName, onLogout }) => {
   const handleDeleteNote = async (id) => {
       if(!confirm("Delete this note?")) return;
       await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'notes', id));
+  };
+
+  const toggleInstrumentNotes = (instrumentId) => {
+    setExpandedNotesByInstrument((prev) => ({
+      ...prev,
+      [instrumentId]: !prev[instrumentId]
+    }));
+  };
+
+  const toggleInstrumentPanel = (instrumentId) => {
+    setOpenedInstrumentNotes((prev) => ({
+      ...prev,
+      [instrumentId]: !prev[instrumentId]
+    }));
+  };
+
+  const logsByMonth = useMemo(() => {
+    const map = {};
+    logs.forEach((log) => {
+      const d = log.timestamp?.toDate?.();
+      if (!d) return;
+      const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+      if (!map[key]) {
+        map[key] = {
+          label: d.toLocaleDateString('en-US', { month: 'short', year: 'numeric' }),
+          logs: []
+        };
+      }
+      map[key].logs.push(log);
+    });
+    return Object.entries(map)
+      .sort((a, b) => b[0].localeCompare(a[0]))
+      .map(([key, value]) => ({ key, ...value }));
+  }, [logs]);
+
+  useEffect(() => {
+    if (logsByMonth.length === 0) return;
+    setOpenedLogMonths((prev) => {
+      if (Object.keys(prev).length > 0) return prev;
+      return { [logsByMonth[0].key]: true };
+    });
+  }, [logsByMonth]);
+
+  const toggleLogMonth = (monthKey) => {
+    setOpenedLogMonths((prev) => ({
+      ...prev,
+      [monthKey]: !prev[monthKey]
+    }));
+  };
+
+  const toggleLogUser = (monthKey, userName) => {
+    const key = `${monthKey}::${userName}`;
+    setOpenedLogUsers((prev) => ({
+      ...prev,
+      [key]: !prev[key]
+    }));
+  };
+
+  const toggleShowAllLogsForUser = (monthKey, userName) => {
+    const key = `${monthKey}::${userName}`;
+    setShowAllUserLogs((prev) => ({
+      ...prev,
+      [key]: !prev[key]
+    }));
+  };
+
+  const isBookingActivityLog = (log) => {
+    const action = (log.action || '').toUpperCase();
+    return action.includes('BOOK') || action.includes('CANCEL');
   };
 
   return (
@@ -113,40 +201,54 @@ const AdminDashboard = ({ labName, onLogout }) => {
 
             {/* 2. 优化的笔记/报告标签页 (按仪器分类) */}
             {activeTab === 'NOTEBOOK' && (
-                <div className="space-y-6">
-                    <div className="bg-white rounded-3xl p-6 shadow-sm mb-4">
-                      <h2 className="text-xl font-bold text-slate-800 flex items-center gap-2"><Book className="w-6 h-6 text-indigo-500"/> Categorized Reports</h2>
-                      <p className="text-xs text-slate-400 mt-1">Issues and user notes grouped by device.</p>
+                <div className="space-y-4">
+                    <div className="bg-white rounded-3xl p-4 shadow-sm mb-2">
+                      <h2 className="text-lg font-bold text-slate-800 flex items-center gap-2"><Book className="w-5 h-5 text-indigo-500"/> Latest Reports By Device</h2>
+                      <p className="text-xs text-slate-400 mt-1">Click a device to open its latest note, then use "See more" for older notes.</p>
                     </div>
 
                     {instruments.map(inst => {
                         const instrumentNotes = notes.filter(n => n.instrumentId === inst.id);
                         if (instrumentNotes.length === 0) return null; // 如果该仪器没留言，不显示该分类
+                        const isOpen = Boolean(openedInstrumentNotes[inst.id]);
+                        const isExpanded = Boolean(expandedNotesByInstrument[inst.id]);
+                        const visibleNotes = isExpanded ? instrumentNotes : [instrumentNotes[0]];
+                        const hiddenCount = instrumentNotes.length - 1;
 
                         const styles = getColorStyle(inst.color);
                         return (
-                            <div key={inst.id} className="bg-white rounded-3xl p-6 shadow-sm border-l-8" style={{ borderLeftColor: styles.text.includes('blue') ? '#3b82f6' : styles.text.includes('red') ? '#ef4444' : styles.text.includes('green') ? '#22c55e' : styles.text.includes('amber') ? '#f59e0b' : '#a855f7' }}>
-                                <div className="flex items-center gap-3 mb-4">
-                                    <div className={`p-2 rounded-lg ${styles.bg} ${styles.text}`}><MessageSquare className="w-5 h-5"/></div>
+                            <div key={inst.id} className="bg-white rounded-2xl p-4 shadow-sm border-l-4" style={{ borderLeftColor: styles.accent || '#3b82f6' }}>
+                                <button onClick={() => toggleInstrumentPanel(inst.id)} className="w-full flex items-center justify-between gap-3 text-left">
+                                  <div className="flex items-center gap-3">
+                                    <div className={`p-1.5 rounded-lg ${styles.bg} ${styles.text}`}><MessageSquare className="w-4 h-4"/></div>
                                     <div>
                                         <h3 className="font-bold text-slate-800">{inst.name}</h3>
                                         <p className="text-[10px] text-slate-400 uppercase tracking-widest">{instrumentNotes.length} Reports</p>
                                     </div>
-                                </div>
-                                <div className="space-y-3">
-                                    {instrumentNotes.map(note => (
-                                        <div key={note.id} className="bg-slate-50 p-4 rounded-2xl border border-slate-100 relative group transition-all hover:bg-white hover:shadow-md">
-                                            <div className="flex justify-between items-start mb-2">
+                                  </div>
+                                  <span className="text-xs font-bold text-slate-500">{isOpen ? 'Hide' : 'Open'}</span>
+                                </button>
+                                {isOpen && (
+                                <div className="space-y-2 mt-3">
+                                    {visibleNotes.map(note => (
+                                        <div key={note.id} className="bg-slate-50 p-2.5 rounded-xl border border-slate-100 relative group transition-all hover:bg-white">
+                                            <div className="flex justify-between items-start mb-1.5">
                                                 <div className="flex items-center gap-2">
-                                                    <span className="font-bold text-sm text-slate-700">{note.userName}</span>
+                                                    <span className="font-bold text-xs text-slate-700">{note.userName}</span>
                                                     <span className="text-[10px] bg-white px-2 py-0.5 rounded-full border border-slate-200 text-slate-400">{formatTime(note.timestamp)}</span>
                                                 </div>
                                                 <button onClick={() => handleDeleteNote(note.id)} className="text-slate-300 hover:text-red-500 transition opacity-0 group-hover:opacity-100"><Trash2 className="w-4 h-4"/></button>
                                             </div>
-                                            <p className="text-slate-600 text-sm leading-relaxed whitespace-pre-wrap">{note.message}</p>
+                                            <p className="text-slate-600 text-xs leading-relaxed whitespace-pre-wrap">{note.message}</p>
                                         </div>
                                     ))}
+                                    {instrumentNotes.length > 1 && (
+                                      <button onClick={() => toggleInstrumentNotes(inst.id)} className="text-xs font-bold text-blue-600 hover:text-blue-700">
+                                        {isExpanded ? 'Show less' : `See ${hiddenCount} more`}
+                                      </button>
+                                    )}
                                 </div>
+                                )}
                             </div>
                         );
                     })}
@@ -163,7 +265,92 @@ const AdminDashboard = ({ labName, onLogout }) => {
 
             {/* 3. 系统日志标签页 */}
             {activeTab === 'LOGS' && (
-                <div className="bg-white rounded-3xl p-6 shadow-sm"><h2 className="text-xl font-bold text-slate-800 mb-6">System Logs</h2><div className="overflow-hidden rounded-xl border border-slate-100"><table className="w-full text-sm text-left"><thead className="bg-slate-50 text-slate-500 font-medium"><tr><th className="p-4">Time</th><th className="p-4">User</th><th className="p-4">Action</th><th className="p-4">Details</th></tr></thead><tbody className="divide-y divide-slate-100">{logs.map(log => (<tr key={log.id} className="hover:bg-slate-50"><td className="p-4 text-slate-400 font-mono text-xs">{formatTime(log.timestamp)}</td><td className="p-4 font-bold text-slate-700">{log.userName}</td><td className="p-4"><span className={`px-2 py-1 rounded text-xs font-bold ${log.action.includes('DEL') || log.action.includes('CANCEL') ? 'bg-red-100 text-red-600' : 'bg-blue-100 text-blue-600'}`}>{log.action}</span></td><td className="p-4 text-slate-600">{log.message}</td></tr>))}</tbody></table></div></div>
+                <div className="bg-white rounded-3xl p-6 shadow-sm">
+                  <h2 className="text-xl font-bold text-slate-800 mb-2">System Logs</h2>
+                  <p className="text-xs text-slate-400 mb-5">Only the most recent 2 months are kept.</p>
+                  <div className="space-y-3">
+                    {logsByMonth.map((group) => {
+                      const isOpen = Boolean(openedLogMonths[group.key]);
+                      const bookingLogs = group.logs.filter(isBookingActivityLog);
+                      const logsByUser = bookingLogs.reduce((acc, log) => {
+                        const userKey = log.userName || 'Unknown';
+                        if (!acc[userKey]) acc[userKey] = [];
+                        acc[userKey].push(log);
+                        return acc;
+                      }, {});
+                      const users = Object.entries(logsByUser).sort((a, b) => ((b[1][0]?.timestamp?.seconds || 0) - (a[1][0]?.timestamp?.seconds || 0)));
+                      return (
+                        <div key={group.key} className="border border-slate-100 rounded-xl overflow-hidden">
+                          <button
+                            onClick={() => toggleLogMonth(group.key)}
+                            className="w-full flex items-center justify-between px-4 py-3 bg-slate-50 hover:bg-slate-100 transition"
+                          >
+                            <div className="flex items-center gap-2">
+                              {isOpen ? <ChevronDown className="w-4 h-4 text-slate-500"/> : <ChevronRight className="w-4 h-4 text-slate-500"/>}
+                              <span className="font-bold text-slate-700">{group.label}</span>
+                            </div>
+                            <span className="text-xs text-slate-400">{users.length} people</span>
+                          </button>
+                          {isOpen && (
+                            <div className="p-3 space-y-2 bg-white">
+                              {users.map(([userName, userLogs]) => {
+                                const openKey = `${group.key}::${userName}`;
+                                const isUserOpen = Boolean(openedLogUsers[openKey]);
+                                const isShowAll = Boolean(showAllUserLogs[openKey]);
+                                const visibleLogs = isShowAll ? userLogs : userLogs.slice(0, 10);
+                                return (
+                                  <div key={openKey} className="border border-slate-100 rounded-lg overflow-hidden">
+                                    <button
+                                      onClick={() => toggleLogUser(group.key, userName)}
+                                      className="w-full px-3 py-2 bg-slate-50 hover:bg-slate-100 transition flex items-center justify-between"
+                                    >
+                                      <div className="flex items-center gap-2">
+                                        {isUserOpen ? <ChevronDown className="w-4 h-4 text-slate-500"/> : <ChevronRight className="w-4 h-4 text-slate-500"/>}
+                                        <span className="font-bold text-slate-700">{userName}</span>
+                                      </div>
+                                      <span className="text-[11px] text-slate-400">{userLogs.length} booking logs</span>
+                                    </button>
+                                    {isUserOpen && (
+                                      <div className="divide-y divide-slate-100">
+                                        {visibleLogs.map((log) => (
+                                          <div key={log.id} className="px-3 py-2 grid grid-cols-[100px_110px_1fr] gap-2 items-start text-xs hover:bg-slate-50">
+                                            <div className="text-slate-400 font-mono">{formatTime(log.timestamp)}</div>
+                                            <div>
+                                              <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${log.action.includes('CANCEL') ? 'bg-red-100 text-red-600' : 'bg-blue-100 text-blue-600'}`}>
+                                                {log.action}
+                                              </span>
+                                            </div>
+                                            <div className="text-slate-600">{log.message}</div>
+                                          </div>
+                                        ))}
+                                        {userLogs.length > 10 && (
+                                          <button
+                                            onClick={() => toggleShowAllLogsForUser(group.key, userName)}
+                                            className="w-full text-left px-3 py-2 text-xs font-bold text-blue-600 hover:bg-blue-50 transition"
+                                          >
+                                            {isShowAll ? 'Show recent 10' : 'See all booking activity'}
+                                          </button>
+                                        )}
+                                      </div>
+                                    )}
+                                  </div>
+                                );
+                              })}
+                              {users.length === 0 && (
+                                <div className="text-xs text-slate-400 bg-slate-50 border border-slate-100 rounded-lg p-4 text-center">
+                                  No booking activity this month.
+                                </div>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                    {logsByMonth.length === 0 && (
+                      <div className="text-sm text-slate-400 bg-slate-50 border border-slate-100 rounded-xl p-6 text-center">No recent logs.</div>
+                    )}
+                  </div>
+                </div>
             )}
         </div>
         

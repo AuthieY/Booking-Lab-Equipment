@@ -16,6 +16,7 @@ const MemberApp = ({ labName, userName, onLogout }) => {
   const [viewMode, setViewMode] = useState('day');
   const [date, setDate] = useState(new Date());
   const [selectedInstrumentId, setSelectedInstrumentId] = useState(null); 
+  const [overviewInstrumentIds, setOverviewInstrumentIds] = useState([]);
   const [showSelectionModal, setShowSelectionModal] = useState(false);
   const [showNoteModal, setShowNoteModal] = useState(false);
   const [instruments, setInstruments] = useState([]);
@@ -26,6 +27,19 @@ const MemberApp = ({ labName, userName, onLogout }) => {
   
   const scrollTargetRef = useRef(null);
   const hours = useMemo(() => Array.from({ length: 24 }, (_, i) => i), []);
+  const selectedDateStr = useMemo(() => getFormattedDate(date), [date]);
+  const isToday = useMemo(() => getFormattedDate(new Date()) === selectedDateStr, [selectedDateStr]);
+  const currentHour = new Date().getHours();
+
+  const formatHour = (hour) => `${String(hour).padStart(2, '0')}:00`;
+  const getSlotKey = (dateStr, hour) => `${dateStr}|${hour}`;
+  const getInstSlotKey = (instrumentId, dateStr, hour) => `${instrumentId}|${dateStr}|${hour}`;
+  const getHourBandClass = (hour) => (hour % 2 === 0 ? 'bg-white' : 'bg-slate-50/45');
+  const isWorkingHour = (hour) => hour >= 9 && hour < 17;
+  const getTimeLabelClass = (hour) => `h-24 text-[10px] text-right pr-2 pt-2 border-b border-slate-200 font-semibold ${getHourBandClass(hour)} ${isToday && hour === currentHour ? 'bg-[#e6f7fc] text-[#00407a]' : isWorkingHour(hour) ? 'text-slate-500' : 'text-slate-400'}`;
+  const getSlotCellClass = ({ hour, isBlocked, isMine, totalUsed }) => (
+    `h-24 border-b border-slate-200 p-1 transition relative ${isBlocked ? 'bg-slate-200/70 cursor-not-allowed' : isMine ? 'bg-[#e6f7fc] border-l-4 border-[#1c7aa0] cursor-pointer' : totalUsed > 0 ? `${getHourBandClass(hour)} cursor-pointer` : `${getHourBandClass(hour)} hover:bg-slate-100 cursor-pointer`} ${isWorkingHour(hour) ? 'after:absolute after:inset-x-0 after:bottom-0 after:h-[1px] after:bg-emerald-200/50' : ''} ${isToday && hour === currentHour ? 'ring-2 ring-inset ring-[#52bdec]' : ''}`
+  );
 
   useEffect(() => {
     const timer = setTimeout(() => { if (scrollTargetRef.current) scrollTargetRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' }); }, 300);
@@ -38,43 +52,149 @@ const MemberApp = ({ labName, userName, onLogout }) => {
     return () => { unsubInst(); unsubBook(); };
   }, [labName]);
 
-  const handleConfirmBooking = async (repeatCount, isFullDay, subOption, isOvernight, requestedQty) => {
+  useEffect(() => {
+    const validIds = new Set(instruments.map((i) => i.id));
+    setOverviewInstrumentIds((prev) => prev.filter((id) => validIds.has(id)));
+
+    if (selectedInstrumentId && !validIds.has(selectedInstrumentId)) {
+      setSelectedInstrumentId(null);
+    }
+  }, [instruments]);
+
+  const bookingsBySlot = useMemo(() => {
+    const map = new Map();
+    bookings.forEach((b) => {
+      const key = getSlotKey(b.date, b.hour);
+      if (!map.has(key)) map.set(key, []);
+      map.get(key).push(b);
+    });
+    return map;
+  }, [bookings]);
+
+  const bookingsByInstrumentSlot = useMemo(() => {
+    const map = new Map();
+    bookings.forEach((b) => {
+      const key = getInstSlotKey(b.instrumentId, b.date, b.hour);
+      if (!map.has(key)) map.set(key, []);
+      map.get(key).push(b);
+    });
+    return map;
+  }, [bookings]);
+
+  const conflictIdsByInstrument = useMemo(() => {
+    const map = {};
+    instruments.forEach((inst) => {
+      const ids = new Set(inst.conflicts || []);
+      instruments.forEach((other) => {
+        if (other.id !== inst.id && (other.conflicts || []).includes(inst.id)) ids.add(other.id);
+      });
+      map[inst.id] = ids;
+    });
+    return map;
+  }, [instruments]);
+
+  const getBlockingBookings = (instrumentId, dateStr, hour) => {
+    const enemyIds = conflictIdsByInstrument[instrumentId];
+    if (!enemyIds || enemyIds.size === 0) return [];
+    const sameSlotBookings = bookingsBySlot.get(getSlotKey(dateStr, hour)) || [];
+    return sameSlotBookings.filter((b) => enemyIds.has(b.instrumentId));
+  };
+
+  const buildBookingSlots = ({ startDateStr, startHour, repeatCount, isFullDay, isOvernight, isWorkingHours }) => {
+    const newSlots = [];
+    const targetDates = [];
+
+    for (let i = 0; i <= repeatCount; i++) {
+      const d = new Date(startDateStr);
+      d.setDate(d.getDate() + (i * 7));
+      targetDates.push(getFormattedDate(d));
+    }
+
+    targetDates.forEach((dStr) => {
+      if (isFullDay) {
+        for (let h = 0; h < 24; h++) newSlots.push({ date: dStr, hour: h });
+      } else if (isWorkingHours) {
+        for (let h = 9; h < 17; h++) newSlots.push({ date: dStr, hour: h });
+      } else if (isOvernight) {
+        for (let h = 17; h <= 23; h++) newSlots.push({ date: dStr, hour: h });
+        const nextDayStr = getFormattedDate(addDays(new Date(dStr), 1));
+        for (let h = 0; h <= 8; h++) newSlots.push({ date: nextDayStr, hour: h });
+      } else {
+        newSlots.push({ date: dStr, hour: startHour });
+      }
+    });
+
+    return newSlots;
+  };
+
+  const findConflicts = ({ instrument, requestedQty, slots }) => {
+    const conflicts = [];
+
+    slots.forEach((slot) => {
+      const ownBookings = bookingsByInstrumentSlot.get(getInstSlotKey(instrument.id, slot.date, slot.hour)) || [];
+      const currentLoad = ownBookings.reduce((sum, b) => sum + (Number(b.requestedQuantity) || 1), 0);
+      const blockingBookings = getBlockingBookings(instrument.id, slot.date, slot.hour);
+
+      if (currentLoad + Number(requestedQty) > (instrument.maxCapacity || 1)) {
+        conflicts.push(`${slot.date} ${formatHour(slot.hour)} (Full)`);
+      }
+      if (blockingBookings.length > 0) {
+        const blockingNames = [...new Set(blockingBookings.map((b) => b.instrumentName))].join(', ');
+        conflicts.push(`${slot.date} ${formatHour(slot.hour)} (Conflict: ${blockingNames})`);
+      }
+    });
+
+    return conflicts;
+  };
+
+  const getBlockingHintsForDate = (instrumentId, dateStr) => {
+    const hints = {};
+    let hour = 0;
+
+    while (hour < 24) {
+      const startBlockers = getBlockingBookings(instrumentId, dateStr, hour);
+      const startNames = [...new Set(startBlockers.map((b) => b.instrumentName))].sort();
+
+      if (startNames.length === 0) {
+        hour += 1;
+        continue;
+      }
+
+      const signature = startNames.join('|');
+      const start = hour;
+      let end = hour + 1;
+
+      while (end < 24) {
+        const nextBlockers = getBlockingBookings(instrumentId, dateStr, end);
+        const nextNames = [...new Set(nextBlockers.map((b) => b.instrumentName))].sort();
+        if (nextNames.join('|') !== signature) break;
+        end += 1;
+      }
+
+      const label = `${startNames.join(' & ')} booked ${formatHour(start)}-${formatHour(end)}`;
+      for (let h = start; h < end; h++) hints[h] = { label, isStart: h === start };
+      hour = end;
+    }
+
+    return hints;
+  };
+
+  const blockingHintsByInstrumentForDate = useMemo(() => {
+    const map = {};
+    instruments.forEach((inst) => {
+      map[inst.id] = getBlockingHintsForDate(inst.id, selectedDateStr);
+    });
+    return map;
+  }, [instruments, selectedDateStr, bookingsBySlot, conflictIdsByInstrument]);
+
+  const handleConfirmBooking = async (repeatCount, isFullDay, subOption, isOvernight, isWorkingHours, requestedQty) => {
     if (!bookingModal.instrument) return;
     setIsBookingProcess(true);
     const { date: startDateStr, hour: startHour, instrument } = bookingModal; 
     const batch = writeBatch(db); 
-    const newSlots = []; 
-    const targetDates = [];
-    const bookingGroupId = (isFullDay || isOvernight || repeatCount > 0) ? `GRP-${Date.now()}-${Math.random().toString(36).substr(2,4)}` : null;
-
-    for (let i = 0; i <= repeatCount; i++) { 
-      const d = new Date(startDateStr); 
-      d.setDate(d.getDate() + (i * 7)); 
-      targetDates.push(getFormattedDate(d)); 
-    }
-
-    targetDates.forEach(dStr => { 
-      if (isFullDay) { for (let h = 0; h < 24; h++) newSlots.push({ date: dStr, hour: h }); }
-      else if (isOvernight) {
-        for (let h = 17; h <= 23; h++) newSlots.push({ date: dStr, hour: h });
-        const nextDayStr = getFormattedDate(addDays(new Date(dStr), 1));
-        for (let h = 0; h <= 8; h++) newSlots.push({ date: nextDayStr, hour: h });
-      } else { newSlots.push({ date: dStr, hour: startHour }); } 
-    });
-
-    // --- RESTORED: Conflict Device Logic ---
-    const thisInstrumentConflicts = instrument.conflicts || [];
-    const enemyIds = instruments.filter(i => thisInstrumentConflicts.includes(i.id) || (i.conflicts && i.conflicts.includes(instrument.id))).map(i => i.id);
-
-    const conflicts = [];
-    newSlots.forEach(slot => {
-      const currentLoad = bookings.filter(b => b.instrumentId === instrument.id && b.date === slot.date && b.hour === slot.hour)
-                                  .reduce((sum, b) => sum + (Number(b.requestedQuantity) || 1), 0);
-      const isEnemyBooked = bookings.some(b => enemyIds.includes(b.instrumentId) && b.date === slot.date && b.hour === slot.hour);
-      
-      if (currentLoad + Number(requestedQty) > (instrument.maxCapacity || 1)) conflicts.push(`${slot.date} ${slot.hour}:00 (Full)`);
-      if (isEnemyBooked) conflicts.push(`${slot.date} ${slot.hour}:00 (Device Conflict)`);
-    });
+    const newSlots = buildBookingSlots({ startDateStr, startHour, repeatCount, isFullDay, isOvernight, isWorkingHours });
+    const bookingGroupId = (isFullDay || isOvernight || isWorkingHours || repeatCount > 0) ? `GRP-${Date.now()}-${Math.random().toString(36).substr(2,4)}` : null;
+    const conflicts = findConflicts({ instrument, requestedQty, slots: newSlots });
 
     if (conflicts.length > 0) { alert(`Conflict at: ${conflicts[0]}`); setIsBookingProcess(false); return; }
     
@@ -119,7 +239,21 @@ const MemberApp = ({ labName, userName, onLogout }) => {
   };
 
   const weekDays = useMemo(() => { const m = getMonday(date); return Array.from({ length: 7 }, (_, i) => { const d = new Date(m); d.setDate(m.getDate() + i); return d; }); }, [date]);
+  const overviewInstruments = useMemo(() => instruments.filter((inst) => overviewInstrumentIds.includes(inst.id)), [instruments, overviewInstrumentIds]);
   const currentInst = instruments.find(i => i.id === selectedInstrumentId);
+  const overviewLabel = useMemo(() => {
+    if (currentInst) return currentInst.name;
+    if (overviewInstruments.length === 0) return 'Select Instruments';
+    if (overviewInstruments.length === instruments.length) return 'Overview';
+    return `Overview (${overviewInstruments.length})`;
+  }, [currentInst, overviewInstruments.length, instruments.length]);
+
+  const handleApplySelection = (ids) => {
+    const nextIds = ids || [];
+    setOverviewInstrumentIds(nextIds);
+    setSelectedInstrumentId(nextIds.length === 1 ? nextIds[0] : null);
+    setShowSelectionModal(false);
+  };
 
   return (
     <div className="flex flex-col h-screen bg-slate-50 font-sans text-slate-900 overflow-hidden text-sm">
@@ -129,15 +263,15 @@ const MemberApp = ({ labName, userName, onLogout }) => {
             <button onClick={onLogout} className="p-2 text-slate-400 bg-slate-100 rounded-full"><LogOut className="w-5 h-5"/></button>
           </header>
           <div className="p-4 border-b">
-              <button onClick={() => setShowSelectionModal(true)} className="w-full p-3 rounded-xl bg-indigo-600 text-white flex justify-between shadow-md font-bold">
-                 <div className="flex items-center gap-3"><LayoutGrid className="w-4 h-4"/> <span>{currentInst ? currentInst.name : 'Overview'}</span></div><ChevronRight className="w-5 h-5 opacity-40"/>
+              <button onClick={() => setShowSelectionModal(true)} className="w-full p-3 rounded-xl bg-[#00407a] text-white flex justify-between shadow-md font-bold">
+                 <div className="flex items-center gap-3"><LayoutGrid className="w-4 h-4"/> <span>{overviewLabel}</span></div><ChevronRight className="w-5 h-5 opacity-40"/>
               </button>
           </div>
           <div className="flex items-center justify-between px-4 py-2 border-b">
              {selectedInstrumentId && (
                <div className="flex bg-slate-100 rounded-lg p-1">
-                 <button onClick={()=>setViewMode('day')} className={`p-1.5 rounded-md ${viewMode==='day'?'bg-white shadow text-indigo-600':'text-slate-400'}`}><LayoutGrid className="w-4 h-4"/></button>
-                 <button onClick={()=>setViewMode('week')} className={`p-1.5 rounded-md ${viewMode==='week'?'bg-white shadow text-indigo-600':'text-slate-400'}`}><CalendarDays className="w-4 h-4"/></button>
+                 <button onClick={()=>setViewMode('day')} className={`p-1.5 rounded-md ${viewMode==='day'?'bg-white shadow text-[#00407a]':'text-slate-400'}`}><LayoutGrid className="w-4 h-4"/></button>
+                 <button onClick={()=>setViewMode('week')} className={`p-1.5 rounded-md ${viewMode==='week'?'bg-white shadow text-[#00407a]':'text-slate-400'}`}><CalendarDays className="w-4 h-4"/></button>
                </div>
              )}
              <div className="flex items-center gap-4 flex-1 justify-end font-bold text-slate-600">
@@ -155,93 +289,191 @@ const MemberApp = ({ labName, userName, onLogout }) => {
           )}
       </div>
 
-      <div className="flex-1 overflow-y-auto relative">
+      <div className={`flex-1 relative ${selectedInstrumentId && viewMode === 'week' ? 'overflow-hidden' : 'overflow-y-auto'}`}>
         {/* VIEW A: OVERVIEW (MATRIX VIEW) */}
-        {!selectedInstrumentId && (
-           <div className="flex min-w-max">
-               <div className="w-14 bg-slate-50 border-r sticky left-0 z-20">
-                 {hours.map(h => <div key={h} ref={h === 8 ? scrollTargetRef : null} className="h-24 text-[10px] text-slate-400 text-right pr-2 pt-2 border-b">{h}:00</div>)}
+        {!selectedInstrumentId && overviewInstruments.length === 0 && (
+           <div className="h-full flex items-center justify-center p-6">
+             <div className="w-full max-w-md bg-white border border-slate-200 rounded-3xl p-6 text-center shadow-sm">
+               <h3 className="text-lg font-black text-slate-800">Choose Instruments For Your View</h3>
+               <p className="text-sm text-slate-500 mt-2">
+                 Start by selecting the instruments you want to display.
+               </p>
+               <p className="text-xs text-slate-400 mt-1">
+                 Select 1 instrument to open its individual view, or select multiple for overview.
+               </p>
+               <button
+                 onClick={() => setShowSelectionModal(true)}
+                 className="mt-5 w-full py-3 rounded-xl bg-[#00407a] text-white font-bold"
+               >
+                 Select Instruments
+               </button>
+             </div>
+           </div>
+        )}
+
+        {!selectedInstrumentId && overviewInstruments.length > 0 && (
+           <div className="flex min-w-max border-y border-slate-200">
+               <div className="w-16 bg-slate-50/95 backdrop-blur border-r sticky left-0 z-20 shadow-[2px_0_0_rgba(148,163,184,0.12)]">
+                 <div className="h-10 border-b bg-slate-100"></div>
+                 {hours.map(h => (
+                   <div
+                     key={h}
+                     ref={h === 8 ? scrollTargetRef : null}
+                     className={getTimeLabelClass(h)}
+                   >
+                     <span className={`${isWorkingHour(h) ? 'font-bold' : ''}`}>{h}:00</span>
+                   </div>
+                 ))}
                </div>
-               <div className="flex">{instruments.map(inst => (
-                 <div key={inst.id} className="w-36 border-r">
-                   <div className={`h-8 flex items-center justify-center text-[10px] font-bold sticky top-0 z-10 border-b ${getColorStyle(inst.color).bg} ${getColorStyle(inst.color).text}`}>{inst.name}</div>
+               <div className="flex">
+                 {overviewInstruments.map(inst => (
+                 <div key={inst.id} className="w-24 border-r border-slate-200">
+                   <div className={`h-10 flex items-center justify-center text-[10px] font-bold sticky top-0 z-10 border-b border-slate-200 shadow-sm px-1 text-center whitespace-normal leading-tight ${getColorStyle(inst.color).bg} ${getColorStyle(inst.color).text}`}>{inst.name}</div>
                    {hours.map(h => {
-                     const slots = bookings.filter(b => b.instrumentId === inst.id && b.date === getFormattedDate(date) && b.hour === h);
+                     const slots = bookingsByInstrumentSlot.get(getInstSlotKey(inst.id, selectedDateStr, h)) || [];
                      const totalUsed = slots.reduce((s, b) => s + (Number(b.requestedQuantity) || 1), 0);
                      const isMine = slots.some(s => s.userName === userName);
+                     const blockHint = blockingHintsByInstrumentForDate[inst.id]?.[h];
+                     const isBlocked = Boolean(blockHint) && !isMine;
                      return (
-                       <div key={h} onClick={() => { if(isMine) setBookingToDelete(slots.find(s=>s.userName===userName)); else if(totalUsed >= (inst.maxCapacity || 1)) alert("Full"); else setBookingModal({isOpen:true, date:getFormattedDate(date), hour:h, instrument:inst}); }} 
-                            className={`h-24 border-b p-1 cursor-pointer transition ${isMine ? 'bg-indigo-50 border-l-4 border-indigo-400' : totalUsed > 0 ? 'bg-slate-50' : 'hover:bg-slate-50'}`}>
-                         {slots.map((s, idx) => (<div key={idx} className={`text-[9px] mb-0.5 px-1 rounded truncate ${s.userName === userName ? 'bg-indigo-600 text-white' : 'bg-slate-200 text-slate-600'}`}>{s.userName}</div>))}
+                       <div
+                         key={h}
+                         onClick={() => {
+                           if (isMine) setBookingToDelete(slots.find(s => s.userName === userName));
+                           else if (isBlocked) return;
+                           else if (totalUsed >= (inst.maxCapacity || 1)) alert("Full");
+                           else setBookingModal({ isOpen: true, date: selectedDateStr, hour: h, instrument: inst });
+                         }}
+                         className={getSlotCellClass({ hour: h, isBlocked, isMine, totalUsed })}
+                       >
+                         {isBlocked && blockHint?.isStart && (
+                           <div className="text-[8px] leading-tight text-slate-500 bg-white/70 rounded px-1 py-0.5 mb-1">
+                             {blockHint.label}
+                           </div>
+                         )}
+                         {slots.map((s, idx) => (<div key={idx} className={`text-[9px] mb-0.5 px-1 rounded truncate ${s.userName === userName ? 'bg-[#00407a] text-white' : 'bg-slate-200 text-slate-600'}`}>{s.userName}</div>))}
                          {totalUsed > 0 && <div className="text-[8px] text-slate-300 mt-auto">{totalUsed}/{inst.maxCapacity || 1}</div>}
                        </div>
                      );
                    })}
                  </div>
-               ))}</div>
+               ))}
+               </div>
            </div>
         )}
         
         {/* VIEW B: SINGLE DAY VIEW */}
         {selectedInstrumentId && viewMode === 'day' && (
-            <div className="p-4 space-y-3">
+            <div className="border-y border-slate-200">
+              <div className={`h-8 border-b border-slate-200 text-[10px] font-bold flex items-center px-4 ${getColorStyle(currentInst?.color || 'blue').bg} ${getColorStyle(currentInst?.color || 'blue').text}`}>
+                {currentInst?.name}
+              </div>
+              <div className="flex min-w-max">
+                <div className="w-16 bg-slate-50/95 backdrop-blur border-r sticky left-0 z-20 shadow-[2px_0_0_rgba(148,163,184,0.12)]">
+                  {hours.map(h => (
+                    <div key={h} ref={h === 8 ? scrollTargetRef : null} className={getTimeLabelClass(h)}>
+                      <span className={`${isWorkingHour(h) ? 'font-bold' : ''}`}>{h}:00</span>
+                    </div>
+                  ))}
+                </div>
+                <div className="flex-1">
               {hours.map(h => { 
-                const slots = bookings.filter(b => b.instrumentId === selectedInstrumentId && b.date === getFormattedDate(date) && b.hour === h); 
+                const slots = bookingsByInstrumentSlot.get(getInstSlotKey(selectedInstrumentId, selectedDateStr, h)) || [];
                 const totalUsed = slots.reduce((s, b) => s + (Number(b.requestedQuantity) || 1), 0);
                 const isMine = slots.some(s => s.userName === userName);
+                const blockHint = blockingHintsByInstrumentForDate[selectedInstrumentId]?.[h];
+                const isBlocked = Boolean(blockHint) && !isMine;
                 return (
-                  <div key={h} ref={h === 8 ? scrollTargetRef : null} className="flex gap-3">
-                    <div className="w-10 pt-3 text-right text-xs text-slate-400 font-bold">{h}:00</div>
-                    <div onClick={() => { if (isMine) setBookingToDelete(slots.find(s=>s.userName===userName)); else if (totalUsed >= (currentInst.maxCapacity || 1)) alert("Full"); else setBookingModal({ isOpen: true, date: getFormattedDate(date), hour:h, instrument: currentInst }); }} 
-                         className={`flex-1 min-h-[4.5rem] rounded-2xl border p-4 transition-all ${isMine ? 'bg-indigo-600 border-indigo-600 text-white shadow-md' : 'bg-white border-slate-100 shadow-sm'}`}>
-                      <div className="flex justify-between items-center">
-                        <div className="flex flex-wrap gap-1.5">
-                          {slots.length > 0 ? slots.map((s, i) => (
-                            <span key={i} className={`text-[10px] px-2 py-1 rounded-full font-bold ${s.userName === userName ? 'bg-white/20 text-white' : 'bg-slate-100 text-slate-600'}`}>{s.userName} ({s.requestedQuantity})</span>
-                          )) : <span className="text-xs font-bold text-slate-300">Available</span>}
-                        </div>
-                        <div className="text-[10px] font-black uppercase opacity-60">{totalUsed}/{currentInst.maxCapacity} Slots</div>
-                      </div>
-                    </div>
+                  <div key={h} ref={h === 8 ? scrollTargetRef : null}
+                    onClick={() => { if (isMine) setBookingToDelete(slots.find(s=>s.userName===userName)); else if (isBlocked) return; else if (totalUsed >= (currentInst.maxCapacity || 1)) alert("Full"); else setBookingModal({ isOpen: true, date: selectedDateStr, hour:h, instrument: currentInst }); }} 
+                    className={getSlotCellClass({ hour: h, isBlocked, isMine, totalUsed })}
+                  >
+                    {isBlocked && blockHint?.isStart && <div className="text-[8px] leading-tight text-slate-500 bg-white/70 rounded px-1 py-0.5 mb-1">{blockHint.label}</div>}
+                    {slots.length > 0 ? slots.map((s, i) => (
+                      <div key={i} className={`text-[9px] mb-0.5 px-1 rounded truncate ${s.userName === userName ? 'bg-[#00407a] text-white' : 'bg-slate-200 text-slate-600'}`}>{s.userName} ({s.requestedQuantity})</div>
+                    )) : <div className="text-[9px] text-slate-300 mt-0.5">Available</div>}
+                    {totalUsed > 0 && <div className="text-[8px] text-slate-300 mt-auto">{totalUsed}/{currentInst.maxCapacity || 1}</div>}
                   </div>
                 );
               })}
+                </div>
+              </div>
             </div>
         )}
 
         {/* VIEW C: WEEKLY VIEW (RESTORED!) */}
         {selectedInstrumentId && viewMode === 'week' && (
-          <div className="overflow-x-auto pb-4 px-2">
-            <div className="min-w-[850px]">
-              <div className="grid grid-cols-8 gap-2 mb-2 sticky top-0 z-20 bg-slate-50 py-3">
-                <div className="w-12"></div>
-                {weekDays.map((d, i) => (<div key={i} className="text-center"><div className="text-[10px] text-slate-400 font-bold uppercase">{['Mon','Tue','Wed','Thu','Fri','Sat','Sun'][d.getDay()===0?6:d.getDay()-1]}</div><div className="text-sm font-black">{d.getDate()}</div></div>))}
+          <div className="h-full overflow-auto border-y border-slate-200">
+            <div className="min-w-[50rem] min-h-full">
+              <div className="grid grid-cols-[4rem_repeat(7,6.5rem)] sticky top-0 z-40 shadow-sm">
+                <div className="h-12 border-r border-b border-slate-200 bg-slate-100"></div>
+                {weekDays.map((d, i) => (
+                  <div key={i} className={`h-12 border-r border-b border-slate-200 flex flex-col items-center justify-center ${getColorStyle(currentInst?.color || 'blue').bg}`}>
+                    <div className="text-[10px] text-slate-500 font-bold uppercase">{['Mon','Tue','Wed','Thu','Fri','Sat','Sun'][d.getDay()===0?6:d.getDay()-1]}</div>
+                    <div className="text-xs font-black text-slate-700">{d.getDate()}</div>
+                  </div>
+                ))}
               </div>
-              <div className="space-y-2">
-                {hours.map(hour => (
-                  <div key={hour} ref={hour === 8 ? scrollTargetRef : null} className="grid grid-cols-8 gap-2 h-20">
-                    <div className="text-[10px] text-slate-400 font-bold text-right pr-2 pt-2">{hour}:00</div>
+              <div>
+                {hours.map(hour => {
+                  return (
+                  <div key={hour} ref={hour === 8 ? scrollTargetRef : null} className="grid grid-cols-[4rem_repeat(7,6.5rem)]">
+                    <div className={getTimeLabelClass(hour)}>
+                      <span className={`${isWorkingHour(hour) ? 'font-bold' : ''}`}>{hour}:00</span>
+                    </div>
                     {weekDays.map((day, i) => {
                       const dateStr = getFormattedDate(day); 
-                      const slots = bookings.filter(b => b.instrumentId === currentInst.id && b.date === dateStr && b.hour === hour);
+                      const slots = bookingsByInstrumentSlot.get(getInstSlotKey(currentInst.id, dateStr, hour)) || [];
                       const isMine = slots.some(s => s.userName === userName);
+                      const blockingBookings = getBlockingBookings(currentInst.id, dateStr, hour);
+                      const blockingNames = [...new Set(blockingBookings.map((b) => b.instrumentName))];
+                      const totalUsed = slots.reduce((s, b) => s + (Number(b.requestedQuantity) || 1), 0);
+                      const isBlocked = blockingNames.length > 0 && !isMine;
                       return (
-                        <div key={i} onClick={() => { if (isMine) setBookingToDelete(slots.find(s=>s.userName===userName)); else setBookingModal({isOpen:true, date:dateStr, hour, instrument: currentInst}); }} 
-                             className={`rounded-xl border p-1.5 overflow-hidden transition-all ${isMine ? 'bg-indigo-600 border-indigo-600 text-white' : 'bg-white border-slate-100 shadow-sm'}`}>
+                        <div key={i} onClick={() => { if (isMine) setBookingToDelete(slots.find(s=>s.userName===userName)); else if (isBlocked) return; else setBookingModal({isOpen:true, date:dateStr, hour, instrument: currentInst}); }} 
+                             className={getSlotCellClass({ hour, isBlocked, isMine, totalUsed })}>
+                          {isBlocked && <div className="text-[8px] truncate mb-0.5">{blockingNames.join(' & ')}</div>}
                           {slots.map((s, idx) => (<div key={idx} className={`text-[8px] truncate rounded-sm mb-0.5 font-bold ${s.userName === userName ? 'bg-white/20 text-white' : 'bg-slate-200 text-slate-600'}`}>{s.userName}</div>))}
                         </div>
                       );
                     })}
                   </div>
-                ))}
+                )})}
               </div>
             </div>
           </div>
         )}
       </div>
 
-      <InstrumentSelectionModal isOpen={showSelectionModal} onClose={()=>setShowSelectionModal(false)} instruments={instruments} onSelect={(id) => { setSelectedInstrumentId(id); setShowSelectionModal(false); }} currentId={selectedInstrumentId} />
-      <BookingModal isOpen={bookingModal.isOpen} onClose={() => setBookingModal({...bookingModal, isOpen: false})} initialDate={bookingModal.date} initialHour={bookingModal.hour} instrument={bookingModal.instrument} onConfirm={handleConfirmBooking} isBooking={isBookingProcess} />
+      <InstrumentSelectionModal
+        isOpen={showSelectionModal}
+        onClose={() => setShowSelectionModal(false)}
+        instruments={instruments}
+        selectedOverviewIds={overviewInstrumentIds}
+        onApply={handleApplySelection}
+      />
+      <BookingModal
+        isOpen={bookingModal.isOpen}
+        onClose={() => setBookingModal({ ...bookingModal, isOpen: false })}
+        initialDate={bookingModal.date}
+        initialHour={bookingModal.hour}
+        instrument={bookingModal.instrument}
+        onConfirm={handleConfirmBooking}
+        isBooking={isBookingProcess}
+        getConflictPreview={({ repeatOption, isFullDay, isOvernight, isWorkingHours, quantity }) => {
+          if (!bookingModal.instrument) return { count: 0, first: '' };
+          const slots = buildBookingSlots({
+            startDateStr: bookingModal.date,
+            startHour: bookingModal.hour,
+            repeatCount: repeatOption,
+            isFullDay,
+            isOvernight,
+            isWorkingHours
+          });
+          const conflicts = findConflicts({ instrument: bookingModal.instrument, requestedQty: quantity, slots });
+          return { count: conflicts.length, first: conflicts[0] || '' };
+        }}
+      />
       <NoteModal isOpen={showNoteModal} onClose={()=>setShowNoteModal(false)} instrument={currentInst} userName={userName} onSave={handleSaveNote} />
       
       {bookingToDelete && (

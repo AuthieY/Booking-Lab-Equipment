@@ -1,21 +1,29 @@
 import React, { useState, useEffect } from 'react';
-import { X, Sun, Moon, Repeat, Loader2, Beaker } from 'lucide-react';
+import { X, Sun, Moon, Clock3, Repeat, Loader2, Beaker } from 'lucide-react';
 import { getColorStyle } from '../../utils/helpers';
 
-const BookingModal = ({ isOpen, onClose, initialDate, initialHour, instrument, onConfirm, isBooking }) => {
+const BookingModal = ({ isOpen, onClose, initialDate, initialHour, instrument, onConfirm, isBooking, getConflictPreview }) => {
   const [repeatOption, setRepeatOption] = useState(0); 
   const [isFullDay, setIsFullDay] = useState(false); 
   const [isOvernight, setIsOvernight] = useState(false); 
+  const [isWorkingHours, setIsWorkingHours] = useState(false);
   const [quantity, setQuantity] = useState(1);
+  const [conflictPreview, setConflictPreview] = useState({ count: 0, first: '' });
 
   const styles = getColorStyle(instrument?.color || 'blue');
   const maxCap = instrument?.maxCapacity || 1;
 
   useEffect(() => { 
     if (isOpen) {
-      setQuantity(1); setRepeatOption(0); setIsFullDay(false); setIsOvernight(false);
+      setQuantity(1); setRepeatOption(0); setIsFullDay(false); setIsOvernight(false); setIsWorkingHours(false);
     }
   }, [instrument, isOpen]);
+
+  useEffect(() => {
+    if (!isOpen || !getConflictPreview) return;
+    const preview = getConflictPreview({ repeatOption, isFullDay, isOvernight, isWorkingHours, quantity });
+    setConflictPreview(preview || { count: 0, first: '' });
+  }, [isOpen, repeatOption, isFullDay, isOvernight, isWorkingHours, quantity, getConflictPreview]);
 
   if (!isOpen) return null;
 
@@ -34,7 +42,7 @@ const BookingModal = ({ isOpen, onClose, initialDate, initialHour, instrument, o
           </div>
 
           <div className="bg-slate-50 p-4 rounded-xl text-sm font-bold text-slate-600">
-            {initialDate} at {isFullDay ? 'Full Day' : isOvernight ? '17:00-09:00' : `${initialHour}:00`}
+            {initialDate} at {isFullDay ? 'Full Day' : isOvernight ? '17:00-09:00' : isWorkingHours ? '09:00-17:00' : `${initialHour}:00`}
           </div>
 
           {maxCap > 1 && (
@@ -54,9 +62,10 @@ const BookingModal = ({ isOpen, onClose, initialDate, initialHour, instrument, o
             </div>
           )}
 
-          <div className="grid grid-cols-2 gap-3">
-            <button type="button" onClick={()=>{setIsFullDay(!isFullDay); setIsOvernight(false)}} className={`p-3 rounded-xl border-2 text-xs font-bold flex items-center gap-2 transition ${isFullDay ? 'border-blue-500 bg-blue-50 text-blue-700' : 'border-slate-100 text-slate-500'}`}><Sun className="w-4 h-4"/> Full Day</button>
-            <button type="button" onClick={()=>{setIsOvernight(!isOvernight); setIsFullDay(false)}} className={`p-3 rounded-xl border-2 text-xs font-bold flex items-center gap-2 transition ${isOvernight ? 'border-purple-500 bg-purple-50 text-purple-700' : 'border-slate-100 text-slate-500'}`}><Moon className="w-4 h-4"/> Overnight</button>
+          <div className="grid grid-cols-3 gap-3">
+            <button type="button" onClick={()=>{setIsFullDay(!isFullDay); setIsOvernight(false); setIsWorkingHours(false);}} className={`p-3 rounded-xl border-2 text-xs font-bold flex items-center gap-2 transition ${isFullDay ? 'border-blue-500 bg-blue-50 text-blue-700' : 'border-slate-100 text-slate-500'}`}><Sun className="w-4 h-4"/> Full Day</button>
+            <button type="button" onClick={()=>{setIsOvernight(!isOvernight); setIsFullDay(false); setIsWorkingHours(false);}} className={`p-3 rounded-xl border-2 text-xs font-bold flex items-center gap-2 transition ${isOvernight ? 'border-purple-500 bg-purple-50 text-purple-700' : 'border-slate-100 text-slate-500'}`}><Moon className="w-4 h-4"/> Overnight</button>
+            <button type="button" onClick={()=>{setIsWorkingHours(!isWorkingHours); setIsFullDay(false); setIsOvernight(false);}} className={`p-3 rounded-xl border-2 text-xs font-bold flex items-center gap-2 transition ${isWorkingHours ? 'border-emerald-500 bg-emerald-50 text-emerald-700' : 'border-slate-100 text-slate-500'}`}><Clock3 className="w-4 h-4"/> Working Hours</button>
           </div>
 
           <div className="bg-slate-50 p-4 rounded-xl">
@@ -70,8 +79,15 @@ const BookingModal = ({ isOpen, onClose, initialDate, initialHour, instrument, o
             </div>
           </div>
 
-          <button onClick={() => onConfirm(repeatOption, isFullDay, null, isOvernight, quantity)} disabled={isBooking} className={`w-full py-4 text-white font-bold rounded-xl shadow-lg transition-all ${styles.darkBg} disabled:opacity-50`}>
-            {isBooking ? <Loader2 className="animate-spin w-5 h-5 mx-auto"/> : "Confirm Booking"}
+          {conflictPreview.count > 0 && (
+            <div className="bg-amber-50 border border-amber-200 rounded-xl p-3">
+              <div className="text-[11px] font-bold text-amber-700 uppercase">Conflicts detected ({conflictPreview.count})</div>
+              <div className="text-[11px] text-amber-700 mt-1">{conflictPreview.first}</div>
+            </div>
+          )}
+
+          <button onClick={() => onConfirm(repeatOption, isFullDay, null, isOvernight, isWorkingHours, quantity)} disabled={isBooking || conflictPreview.count > 0} className={`w-full py-4 text-white font-bold rounded-xl shadow-lg transition-all ${styles.darkBg} disabled:opacity-50`}>
+            {isBooking ? <Loader2 className="animate-spin w-5 h-5 mx-auto"/> : conflictPreview.count > 0 ? "Resolve Conflicts" : "Confirm Booking"}
           </button>
         </div>
       </div>
