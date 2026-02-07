@@ -411,7 +411,7 @@ const MemberApp = ({ labName, userName, onLogout }) => {
                          className={getSlotCellClass({ hour: h, isBlocked, isMine, totalUsed })}
                        >
                          {isBlocked && blockHint?.isStart && (
-                           <div className="text-[8px] leading-tight text-slate-500 bg-white/70 rounded px-1 py-0.5 mb-1">
+                           <div className="text-[7px] leading-snug text-slate-500 bg-white/70 rounded px-1 py-0.5 mb-1 whitespace-normal break-words">
                              {blockHint.label}
                            </div>
                          )}
@@ -452,7 +452,7 @@ const MemberApp = ({ labName, userName, onLogout }) => {
                     onClick={() => { if (isMine) setBookingToDelete(slots.find(s=>s.userName===userName)); else if (isBlocked) return; else if (totalUsed >= (currentInst.maxCapacity || 1)) alert("Full"); else setBookingModal({ isOpen: true, date: selectedDateStr, hour:h, instrument: currentInst }); }} 
                     className={getSlotCellClass({ hour: h, isBlocked, isMine, totalUsed })}
                   >
-                    {isBlocked && blockHint?.isStart && <div className="text-[8px] leading-tight text-slate-500 bg-white/70 rounded px-1 py-0.5 mb-1">{blockHint.label}</div>}
+                    {isBlocked && blockHint?.isStart && <div className="text-[7px] leading-snug text-slate-500 bg-white/70 rounded px-1 py-0.5 mb-1 whitespace-normal break-words">{blockHint.label}</div>}
                     {slots.length > 0 ? slots.map((s, i) => (
                       <div key={i} className={`text-[9px] mb-0.5 px-1 rounded truncate ${s.userName === userName ? 'bg-[#00407a] text-white' : 'bg-slate-200 text-slate-600'}`}>{s.userName} ({s.requestedQuantity})</div>
                     )) : <div className="text-[9px] text-slate-300 mt-0.5">Available</div>}
@@ -499,7 +499,7 @@ const MemberApp = ({ labName, userName, onLogout }) => {
                       return (
                         <div key={i} onClick={() => { if (isMine) setBookingToDelete(slots.find(s=>s.userName===userName)); else if (isBlocked) return; else setBookingModal({isOpen:true, date:dateStr, hour, instrument: currentInst}); }} 
                              className={getSlotCellClass({ hour, isBlocked, isMine, totalUsed })}>
-                          {isBlocked && isBlockStart && <div className="text-[8px] leading-tight text-slate-500 bg-white/70 rounded px-1 py-0.5 mb-1 whitespace-normal break-words line-clamp-2">{blockingDetails.labelPrefix}</div>}
+                          {isBlocked && isBlockStart && <div className="text-[7px] leading-snug text-slate-500 bg-white/70 rounded px-1 py-0.5 mb-1 whitespace-normal break-words">{blockingDetails.labelPrefix}</div>}
                           {slots.map((s, idx) => (<div key={idx} className={`text-[8px] truncate rounded-sm mb-0.5 font-bold ${s.userName === userName ? 'bg-[#00407a] text-white' : 'bg-slate-200 text-slate-600'}`}>{s.userName}</div>))}
                         </div>
                       );
