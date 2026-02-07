@@ -8,6 +8,7 @@ const InstrumentModal = ({ isOpen, onClose, onSave, initialData, existingInstrum
   const [capacity, setCapacity] = useState(1);
   const [subOptionsStr, setSubOptionsStr] = useState('');
   const [color, setColor] = useState('blue');
+  const [themeFilter, setThemeFilter] = useState('all');
   const [selectedConflicts, setSelectedConflicts] = useState([]);
   const [isUnderMaintenance, setIsUnderMaintenance] = useState(false);
 
@@ -27,6 +28,9 @@ const InstrumentModal = ({ isOpen, onClose, onSave, initialData, existingInstrum
   }, [initialData, isOpen]);
 
   if (!isOpen) return null;
+
+  const selectedTheme = COLOR_PALETTE.find((c) => c.id === color) || COLOR_PALETTE[0];
+  const visibleThemes = themeFilter === 'all' ? COLOR_PALETTE : COLOR_PALETTE.filter((c) => c.type === themeFilter);
 
   const toggleConflict = (id) => {
     setSelectedConflicts(prev => prev.includes(id) ? prev.filter(cid => cid !== id) : [...prev, id]);
@@ -73,20 +77,47 @@ const InstrumentModal = ({ isOpen, onClose, onSave, initialData, existingInstrum
 
           <div>
             <label className="text-xs font-bold text-slate-400 uppercase">Color Theme</label>
-            <div className="grid grid-cols-5 gap-2 mt-2">
-              {COLOR_PALETTE.map(c => (
+            <div className="flex gap-2 mt-2">
+              {[
+                { id: 'all', label: 'All' },
+                { id: 'solid', label: 'Solid' },
+                { id: 'gradient', label: 'Gradient' }
+              ].map((opt) => (
+                <button
+                  key={opt.id}
+                  type="button"
+                  onClick={() => setThemeFilter(opt.id)}
+                  className={`px-2.5 py-1 rounded-full text-[10px] font-bold border transition ${themeFilter === opt.id ? 'bg-slate-800 text-white border-slate-800' : 'bg-white text-slate-500 border-slate-200'}`}
+                >
+                  {opt.label}
+                </button>
+              ))}
+            </div>
+            <div className="mt-2 p-2 rounded-xl border border-slate-200 bg-slate-50">
+              <div className="text-[10px] text-slate-400 font-bold uppercase mb-1">Preview</div>
+              <div className={`h-10 rounded-lg px-3 flex items-center text-white font-bold text-sm ${selectedTheme.darkBg}`}>
+                {selectedTheme.label}
+              </div>
+            </div>
+            <div className="grid grid-cols-4 gap-2 mt-2 max-h-48 overflow-y-auto pr-1">
+              {visibleThemes.map(c => (
                 <button
                   key={c.id}
                   type="button"
                   onClick={() => setColor(c.id)}
-                  className={`h-11 rounded-lg cursor-pointer flex items-center justify-center ${c.darkBg} ${color === c.id ? 'ring-4 ring-offset-2 ring-slate-200' : 'opacity-80 hover:opacity-100'} transition`}
+                  className={`p-1.5 rounded-xl cursor-pointer border transition ${color === c.id ? 'border-slate-500 ring-2 ring-slate-200' : 'border-slate-200 hover:border-slate-300'}`}
                   title={c.label || c.id}
                 >
-                  {color === c.id && <CheckCircle2 className="w-5 h-5 text-white"/>}
+                  <div className="w-full">
+                    <div className={`h-8 rounded-md flex items-center justify-center ${c.darkBg}`}>
+                      {color === c.id && <CheckCircle2 className="w-4 h-4 text-white"/>}
+                    </div>
+                    <div className="text-[10px] text-slate-600 mt-1 truncate">{c.label}</div>
+                  </div>
                 </button>
               ))}
             </div>
-            <div className="text-[11px] text-slate-500 mt-2">Selected: {COLOR_PALETTE.find(c => c.id === color)?.label || color}</div>
+            <div className="text-[11px] text-slate-500 mt-2">Selected: {selectedTheme.label || color}</div>
           </div>
           <div className="flex gap-3 mt-4"><button type="button" onClick={onClose} className="flex-1 py-3 text-slate-500 font-bold bg-slate-50 rounded-xl">Cancel</button><button type="submit" className="flex-1 py-3 bg-slate-900 text-white font-bold rounded-xl">Save</button></div>
         </form>
