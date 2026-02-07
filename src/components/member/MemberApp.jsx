@@ -17,6 +17,9 @@ const MemberApp = ({ labName, userName, onLogout }) => {
   const [date, setDate] = useState(new Date());
   const [selectedInstrumentId, setSelectedInstrumentId] = useState(null); 
   const [overviewInstrumentIds, setOverviewInstrumentIds] = useState([]);
+  const [pinnedInstrumentIds, setPinnedInstrumentIds] = useState([]);
+  const [hasHydratedPinned, setHasHydratedPinned] = useState(false);
+  const [hasLoadedInstruments, setHasLoadedInstruments] = useState(false);
   const [showSelectionModal, setShowSelectionModal] = useState(false);
   const [showNoteModal, setShowNoteModal] = useState(false);
   const [instruments, setInstruments] = useState([]);
@@ -47,19 +50,49 @@ const MemberApp = ({ labName, userName, onLogout }) => {
   }, [selectedInstrumentId, viewMode]);
 
   useEffect(() => {
-    const unsubInst = onSnapshot(query(collection(db, 'artifacts', appId, 'public', 'data', 'instruments'), where('labName', '==', labName)), (s) => setInstruments(s.docs.map(d => ({ id: d.id, ...d.data() }))));
+    setHasLoadedInstruments(false);
+    const unsubInst = onSnapshot(query(collection(db, 'artifacts', appId, 'public', 'data', 'instruments'), where('labName', '==', labName)), (s) => {
+      setInstruments(s.docs.map(d => ({ id: d.id, ...d.data() })));
+      setHasLoadedInstruments(true);
+    });
     const unsubBook = onSnapshot(query(collection(db, 'artifacts', appId, 'public', 'data', 'bookings'), where('labName', '==', labName)), (s) => setBookings(s.docs.map(d => ({ id: d.id, ...d.data() }))));
     return () => { unsubInst(); unsubBook(); };
   }, [labName]);
 
   useEffect(() => {
+    setHasHydratedPinned(false);
+    try {
+      const key = `booking_pinned_instruments:${labName}:${userName}`;
+      const raw = localStorage.getItem(key);
+      const parsed = raw ? JSON.parse(raw) : [];
+      setPinnedInstrumentIds(Array.isArray(parsed) ? parsed : []);
+    } catch (_) {
+      setPinnedInstrumentIds([]);
+    } finally {
+      setHasHydratedPinned(true);
+    }
+  }, [labName, userName]);
+
+  useEffect(() => {
+    if (!hasHydratedPinned) return;
+    try {
+      const key = `booking_pinned_instruments:${labName}:${userName}`;
+      localStorage.setItem(key, JSON.stringify(pinnedInstrumentIds));
+    } catch (_) {
+      // Ignore storage errors in private mode / restricted environments.
+    }
+  }, [labName, userName, pinnedInstrumentIds, hasHydratedPinned]);
+
+  useEffect(() => {
+    if (!hasLoadedInstruments || !hasHydratedPinned) return;
     const validIds = new Set(instruments.map((i) => i.id));
     setOverviewInstrumentIds((prev) => prev.filter((id) => validIds.has(id)));
+    setPinnedInstrumentIds((prev) => prev.filter((id) => validIds.has(id)));
 
     if (selectedInstrumentId && !validIds.has(selectedInstrumentId)) {
       setSelectedInstrumentId(null);
     }
-  }, [instruments]);
+  }, [instruments, hasLoadedInstruments, hasHydratedPinned]);
 
   const bookingsBySlot = useMemo(() => {
     const map = new Map();
@@ -252,7 +285,17 @@ const MemberApp = ({ labName, userName, onLogout }) => {
   };
 
   const weekDays = useMemo(() => { const m = getMonday(date); return Array.from({ length: 7 }, (_, i) => { const d = new Date(m); d.setDate(m.getDate() + i); return d; }); }, [date]);
-  const overviewInstruments = useMemo(() => instruments.filter((inst) => overviewInstrumentIds.includes(inst.id)), [instruments, overviewInstrumentIds]);
+  const overviewInstruments = useMemo(() => {
+    const pinnedSet = new Set(pinnedInstrumentIds);
+    return instruments
+      .filter((inst) => overviewInstrumentIds.includes(inst.id))
+      .sort((a, b) => {
+        const ap = pinnedSet.has(a.id) ? 0 : 1;
+        const bp = pinnedSet.has(b.id) ? 0 : 1;
+        if (ap !== bp) return ap - bp;
+        return a.name.localeCompare(b.name);
+      });
+  }, [instruments, overviewInstrumentIds, pinnedInstrumentIds]);
   const currentInst = instruments.find(i => i.id === selectedInstrumentId);
   const overviewLabel = useMemo(() => {
     if (currentInst) return currentInst.name;
@@ -266,6 +309,14 @@ const MemberApp = ({ labName, userName, onLogout }) => {
     setOverviewInstrumentIds(nextIds);
     setSelectedInstrumentId(nextIds.length === 1 ? nextIds[0] : null);
     setShowSelectionModal(false);
+  };
+
+  const handleTogglePinnedInstrument = (instrumentId) => {
+    setPinnedInstrumentIds((prev) => (
+      prev.includes(instrumentId)
+        ? prev.filter((id) => id !== instrumentId)
+        : [instrumentId, ...prev]
+    ));
   };
 
   return (
@@ -466,6 +517,8 @@ const MemberApp = ({ labName, userName, onLogout }) => {
         onClose={() => setShowSelectionModal(false)}
         instruments={instruments}
         selectedOverviewIds={overviewInstrumentIds}
+        pinnedInstrumentIds={pinnedInstrumentIds}
+        onTogglePin={handleTogglePinnedInstrument}
         onApply={handleApplySelection}
       />
       <BookingModal
