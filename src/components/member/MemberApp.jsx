@@ -36,9 +36,9 @@ const MemberApp = ({ labName, userName, onLogout }) => {
   const getInstSlotKey = (instrumentId, dateStr, hour) => `${instrumentId}|${dateStr}|${hour}`;
   const getHourBandClass = (hour) => (hour % 2 === 0 ? 'bg-white' : 'bg-slate-50/45');
   const isWorkingHour = (hour) => hour >= 9 && hour < 17;
-  const getTimeLabelClass = (hour) => `h-24 text-[10px] text-right pr-2 pt-2 border-b border-slate-200 font-semibold ${getHourBandClass(hour)} ${isToday && hour === currentHour ? 'bg-[#e6f7fc] text-[#00407a]' : isWorkingHour(hour) ? 'text-slate-500' : 'text-slate-400'}`;
+  const getTimeLabelClass = (hour) => `h-16 text-[10px] text-right pr-2 pt-2 border-b border-slate-200 font-semibold ${getHourBandClass(hour)} ${isToday && hour === currentHour ? 'bg-[#e6f7fc] text-[#00407a]' : isWorkingHour(hour) ? 'text-slate-500' : 'text-slate-400'}`;
   const getSlotCellClass = ({ hour, isBlocked, isMine, totalUsed }) => (
-    `h-24 border-b border-slate-200 p-1 transition relative ${isBlocked ? 'bg-slate-200/70 cursor-not-allowed' : isMine ? 'bg-[#e6f7fc] border-l-4 border-[#1c7aa0] cursor-pointer' : totalUsed > 0 ? `${getHourBandClass(hour)} cursor-pointer` : `${getHourBandClass(hour)} hover:bg-slate-100 cursor-pointer`} ${isWorkingHour(hour) ? 'after:absolute after:inset-x-0 after:bottom-0 after:h-[1px] after:bg-emerald-200/50' : ''} ${isToday && hour === currentHour ? 'ring-2 ring-inset ring-[#52bdec]' : ''}`
+    `h-16 border-b border-slate-200 p-1 transition relative ${isBlocked ? 'bg-slate-200/70 cursor-not-allowed' : isMine ? 'bg-[#e6f7fc] border-l-4 border-[#1c7aa0] cursor-pointer' : totalUsed > 0 ? `${getHourBandClass(hour)} cursor-pointer` : `${getHourBandClass(hour)} hover:bg-slate-100 cursor-pointer`} ${isWorkingHour(hour) ? 'after:absolute after:inset-x-0 after:bottom-0 after:h-[1px] after:bg-emerald-200/50' : ''} ${isToday && hour === currentHour ? 'ring-2 ring-inset ring-[#52bdec]' : ''}`
   );
 
   useEffect(() => {
@@ -127,6 +127,19 @@ const MemberApp = ({ labName, userName, onLogout }) => {
     return newSlots;
   };
 
+  const getBlockingDetails = (blockingBookings = []) => {
+    const instrumentNames = [...new Set(blockingBookings.map((b) => b.instrumentName || 'Unknown Instrument'))].sort();
+    const userNames = [...new Set(blockingBookings.map((b) => b.userName || 'Unknown User'))].sort();
+    const instrumentsText = instrumentNames.join(' & ');
+    const usersText = userNames.join(' & ');
+    return {
+      instrumentsText,
+      usersText,
+      signature: `${instrumentsText}||${usersText}`,
+      labelPrefix: `Conflict: ${instrumentsText} booked by ${usersText}`
+    };
+  };
+
   const findConflicts = ({ instrument, requestedQty, slots }) => {
     const conflicts = [];
 
@@ -139,8 +152,8 @@ const MemberApp = ({ labName, userName, onLogout }) => {
         conflicts.push(`${slot.date} ${formatHour(slot.hour)} (Full)`);
       }
       if (blockingBookings.length > 0) {
-        const blockingNames = [...new Set(blockingBookings.map((b) => b.instrumentName))].join(', ');
-        conflicts.push(`${slot.date} ${formatHour(slot.hour)} (Conflict: ${blockingNames})`);
+        const blockingDetails = getBlockingDetails(blockingBookings);
+        conflicts.push(`${slot.date} ${formatHour(slot.hour)} (${blockingDetails.labelPrefix})`);
       }
     });
 
@@ -153,25 +166,25 @@ const MemberApp = ({ labName, userName, onLogout }) => {
 
     while (hour < 24) {
       const startBlockers = getBlockingBookings(instrumentId, dateStr, hour);
-      const startNames = [...new Set(startBlockers.map((b) => b.instrumentName))].sort();
+      const startDetails = getBlockingDetails(startBlockers);
 
-      if (startNames.length === 0) {
+      if (!startDetails.instrumentsText) {
         hour += 1;
         continue;
       }
 
-      const signature = startNames.join('|');
+      const signature = startDetails.signature;
       const start = hour;
       let end = hour + 1;
 
       while (end < 24) {
         const nextBlockers = getBlockingBookings(instrumentId, dateStr, end);
-        const nextNames = [...new Set(nextBlockers.map((b) => b.instrumentName))].sort();
-        if (nextNames.join('|') !== signature) break;
+        const nextDetails = getBlockingDetails(nextBlockers);
+        if (nextDetails.signature !== signature) break;
         end += 1;
       }
 
-      const label = `${startNames.join(' & ')} booked ${formatHour(start)}-${formatHour(end)}`;
+      const label = startDetails.labelPrefix;
       for (let h = start; h < end; h++) hints[h] = { label, isStart: h === start };
       hour = end;
     }
@@ -276,7 +289,7 @@ const MemberApp = ({ labName, userName, onLogout }) => {
              )}
              <div className="flex items-center gap-4 flex-1 justify-end font-bold text-slate-600">
                 <button onClick={() => setDate(addDays(date, (viewMode === 'day' || !selectedInstrumentId) ? -1 : -7))}><ChevronLeft/></button>
-                <span>{(viewMode === 'day' || !selectedInstrumentId) ? date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : `${weekDays[0].getMonth()+1}/${weekDays[0].getDate()} - ${weekDays[6].getDate()}`}</span>
+                <span>{(viewMode === 'day' || !selectedInstrumentId) ? date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : `${weekDays[0].getMonth()+1}/${weekDays[0].getDate()} - ${weekDays[6].getMonth()+1}/${weekDays[6].getDate()}`}</span>
                 <button onClick={() => setDate(addDays(date, (viewMode === 'day' || !selectedInstrumentId) ? 1 : 7))}><ChevronRight/></button>
              </div>
           </div>
@@ -365,7 +378,7 @@ const MemberApp = ({ labName, userName, onLogout }) => {
         {/* VIEW B: SINGLE DAY VIEW */}
         {selectedInstrumentId && viewMode === 'day' && (
             <div className="border-y border-slate-200">
-              <div className={`h-8 border-b border-slate-200 text-[10px] font-bold flex items-center px-4 ${getColorStyle(currentInst?.color || 'blue').bg} ${getColorStyle(currentInst?.color || 'blue').text}`}>
+              <div className="h-8 border-b border-slate-200 text-[10px] font-bold flex items-center px-4 bg-[#e6f3fb] text-[#00407a]">
                 {currentInst?.name}
               </div>
               <div className="flex min-w-max">
@@ -406,11 +419,11 @@ const MemberApp = ({ labName, userName, onLogout }) => {
           <div className="h-full overflow-auto border-y border-slate-200">
             <div className="min-w-[50rem] min-h-full">
               <div className="grid grid-cols-[4rem_repeat(7,6.5rem)] sticky top-0 z-40 shadow-sm">
-                <div className="h-12 border-r border-b border-slate-200 bg-slate-100"></div>
+                <div className="h-12 border-r border-b border-slate-200 bg-[#e6f3fb]"></div>
                 {weekDays.map((d, i) => (
-                  <div key={i} className={`h-12 border-r border-b border-slate-200 flex flex-col items-center justify-center ${getColorStyle(currentInst?.color || 'blue').bg}`}>
-                    <div className="text-[10px] text-slate-500 font-bold uppercase">{['Mon','Tue','Wed','Thu','Fri','Sat','Sun'][d.getDay()===0?6:d.getDay()-1]}</div>
-                    <div className="text-xs font-black text-slate-700">{d.getDate()}</div>
+                  <div key={i} className="h-12 border-r border-b border-slate-200 flex flex-col items-center justify-center bg-[#e6f3fb]">
+                    <div className="text-[10px] text-[#1c7aa0] font-bold uppercase">{['Mon','Tue','Wed','Thu','Fri','Sat','Sun'][d.getDay()===0?6:d.getDay()-1]}</div>
+                    <div className="text-xs font-black text-[#00407a]">{d.getDate()}</div>
                   </div>
                 ))}
               </div>
@@ -426,14 +439,17 @@ const MemberApp = ({ labName, userName, onLogout }) => {
                       const slots = bookingsByInstrumentSlot.get(getInstSlotKey(currentInst.id, dateStr, hour)) || [];
                       const isMine = slots.some(s => s.userName === userName);
                       const blockingBookings = getBlockingBookings(currentInst.id, dateStr, hour);
-                      const blockingNames = [...new Set(blockingBookings.map((b) => b.instrumentName))];
+                      const blockingDetails = getBlockingDetails(blockingBookings);
+                      const prevBlockingBookings = hour > 0 ? getBlockingBookings(currentInst.id, dateStr, hour - 1) : [];
+                      const prevBlockingDetails = getBlockingDetails(prevBlockingBookings);
                       const totalUsed = slots.reduce((s, b) => s + (Number(b.requestedQuantity) || 1), 0);
-                      const isBlocked = blockingNames.length > 0 && !isMine;
+                      const isBlocked = Boolean(blockingDetails.instrumentsText) && !isMine;
+                      const isBlockStart = isBlocked && (hour === 0 || prevBlockingDetails.signature !== blockingDetails.signature);
                       return (
                         <div key={i} onClick={() => { if (isMine) setBookingToDelete(slots.find(s=>s.userName===userName)); else if (isBlocked) return; else setBookingModal({isOpen:true, date:dateStr, hour, instrument: currentInst}); }} 
                              className={getSlotCellClass({ hour, isBlocked, isMine, totalUsed })}>
-                          {isBlocked && <div className="text-[8px] truncate mb-0.5">{blockingNames.join(' & ')}</div>}
-                          {slots.map((s, idx) => (<div key={idx} className={`text-[8px] truncate rounded-sm mb-0.5 font-bold ${s.userName === userName ? 'bg-white/20 text-white' : 'bg-slate-200 text-slate-600'}`}>{s.userName}</div>))}
+                          {isBlocked && isBlockStart && <div className="text-[8px] leading-tight text-slate-500 bg-white/70 rounded px-1 py-0.5 mb-1 whitespace-normal break-words line-clamp-2">{blockingDetails.labelPrefix}</div>}
+                          {slots.map((s, idx) => (<div key={idx} className={`text-[8px] truncate rounded-sm mb-0.5 font-bold ${s.userName === userName ? 'bg-[#00407a] text-white' : 'bg-slate-200 text-slate-600'}`}>{s.userName}</div>))}
                         </div>
                       );
                     })}
