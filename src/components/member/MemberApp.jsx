@@ -442,7 +442,7 @@ const MemberApp = ({ labName, userName, onLogout }) => {
   };
 
   return (
-    <div className="flex flex-col h-screen ds-page font-sans text-slate-900 overflow-hidden text-sm">
+    <div className="flex flex-col h-screen ds-page font-sans text-slate-900 overflow-hidden text-sm ds-animate-enter-fast">
       <div className="flex-none z-50 bg-white/95 backdrop-blur border-b border-[var(--ds-border)] shadow-sm">
           <header className="px-4 pt-3 pb-2 border-b border-slate-200/80">
             <div className="flex items-start justify-between gap-3">
@@ -912,7 +912,7 @@ const MemberApp = ({ labName, userName, onLogout }) => {
       />
       {slotDetails.isOpen && (
         <div className="ds-overlay z-[90]" role="presentation">
-          <div className="ds-modal ds-modal-sm ds-section" role="dialog" aria-modal="true" aria-labelledby="slot-details-title">
+          <div className="ds-modal ds-modal-sm ds-section ds-animate-modal" role="dialog" aria-modal="true" aria-labelledby="slot-details-title">
             <h3 id="slot-details-title" className="text-base font-bold text-slate-800">{slotDetails.instrument?.name || 'Slot details'}</h3>
             <p className="text-xs text-slate-500 font-data tabular-nums mt-1">
               {slotDetails.dateStr} at {formatHour(slotDetails.hour)}
@@ -991,7 +991,7 @@ const MemberApp = ({ labName, userName, onLogout }) => {
       
       {bookingToDelete && (
         <div className="ds-overlay z-[60]" role="presentation">
-          <div className="ds-modal ds-modal-sm ds-section text-center" role="dialog" aria-modal="true" aria-labelledby="cancel-booking-title">
+          <div className="ds-modal ds-modal-sm ds-section ds-animate-modal text-center" role="dialog" aria-modal="true" aria-labelledby="cancel-booking-title">
             <ShieldAlert className="w-12 h-12 text-red-500 mx-auto mb-4"/>
             <h3 id="cancel-booking-title" className="font-black mb-2 text-lg">Cancel booking?</h3>
             {bookingToDelete.bookingGroupId && <p className="text-[10px] text-orange-500 font-bold bg-orange-50 p-2 rounded-lg mb-4">Batch booking detected. Cancelling all linked slots.</p>}

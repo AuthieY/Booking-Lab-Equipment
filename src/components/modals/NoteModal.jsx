@@ -13,7 +13,7 @@ const NoteModal = ({ isOpen, onClose, instrument, userName, onSave }) => {
     if (!isOpen) return null;
     return (
       <div className="ds-overlay" role="presentation">
-        <div className="ds-modal ds-modal-sm ds-section" role="dialog" aria-modal="true" aria-labelledby="note-modal-title">
+        <div className="ds-modal ds-modal-sm ds-section ds-animate-modal" role="dialog" aria-modal="true" aria-labelledby="note-modal-title">
             <h3 id="note-modal-title" className="text-lg font-bold mb-2 text-slate-800">Report issue</h3>
             <p className="text-xs text-slate-500 mb-4">Leave a message about <span className="font-bold text-[var(--ds-brand-700)]">{instrument.name}</span>.</p>
             <label htmlFor="note-message" className="ds-field-label">Message</label>

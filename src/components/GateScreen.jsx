@@ -46,7 +46,7 @@ export const GateScreen = ({ onLoginSuccess }) => {
   };
 
   return (
-    <div className="flex flex-col items-center justify-center min-h-screen ds-page p-4 md:p-6 animate-fade-in">
+    <div className="flex flex-col items-center justify-center min-h-screen ds-page p-4 md:p-6 ds-animate-enter">
       <div className="w-full max-w-md ds-card ds-section-lg">
         <div className="flex justify-center mb-4">
           <div className={`p-4 rounded-full ${isCreating ? 'bg-indigo-100' : role === 'ADMIN' ? 'bg-slate-800' : 'bg-blue-100'}`}>

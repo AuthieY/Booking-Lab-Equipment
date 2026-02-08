@@ -52,6 +52,7 @@
   /* Motion */
   --ds-motion-fast: 120ms ease;
   --ds-motion-base: 180ms ease;
+  --ds-motion-slow: 260ms cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 @layer base {
@@ -93,6 +94,37 @@ body {
 }
 
 @layer components {
+  @keyframes ds-fade-in {
+    from {
+      opacity: 0;
+    }
+    to {
+      opacity: 1;
+    }
+  }
+
+  @keyframes ds-fade-up {
+    from {
+      opacity: 0;
+      transform: translateY(8px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
+  @keyframes ds-scale-in {
+    from {
+      opacity: 0;
+      transform: translateY(6px) scale(0.985);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0) scale(1);
+    }
+  }
+
   .ds-page {
     background: var(--ds-bg);
     color: var(--ds-text);
@@ -141,6 +173,7 @@ body {
     align-items: center;
     justify-content: center;
     padding: 1rem;
+    animation: ds-fade-in var(--ds-motion-base) both;
   }
 
   .ds-modal {
@@ -167,12 +200,21 @@ body {
     border: 1px solid transparent;
     border-radius: var(--ds-radius-lg);
     font-weight: 700;
-    transition: background-color var(--ds-motion-fast), color var(--ds-motion-fast), border-color var(--ds-motion-fast), box-shadow var(--ds-motion-base), opacity var(--ds-motion-fast);
+    transition: background-color var(--ds-motion-fast), color var(--ds-motion-fast), border-color var(--ds-motion-fast), box-shadow var(--ds-motion-base), opacity var(--ds-motion-fast), transform var(--ds-motion-fast);
   }
 
   .ds-btn:disabled {
     opacity: 0.45;
     cursor: not-allowed;
+    transform: none;
+  }
+
+  .ds-btn:not(:disabled):hover {
+    transform: translateY(-1px);
+  }
+
+  .ds-btn:not(:disabled):active {
+    transform: translateY(0);
   }
 
   .ds-btn-primary {
@@ -204,7 +246,11 @@ body {
   .ds-tab {
     border: 1px solid transparent;
     border-radius: var(--ds-radius-lg);
-    transition: background-color var(--ds-motion-fast), color var(--ds-motion-fast), border-color var(--ds-motion-fast), box-shadow var(--ds-motion-base);
+    transition: background-color var(--ds-motion-fast), color var(--ds-motion-fast), border-color var(--ds-motion-fast), box-shadow var(--ds-motion-base), transform var(--ds-motion-fast);
+  }
+
+  .ds-tab:active {
+    transform: scale(0.99);
   }
 
   .ds-tab-active {
@@ -272,11 +318,23 @@ body {
     background: var(--ds-danger-bg);
     color: var(--ds-danger-text);
   }
+
+  .ds-animate-enter {
+    animation: ds-fade-up var(--ds-motion-slow) both;
+  }
+
+  .ds-animate-enter-fast {
+    animation: ds-fade-up var(--ds-motion-base) both;
+  }
+
+  .ds-animate-modal {
+    animation: ds-scale-in var(--ds-motion-slow) both;
+  }
 }
 
 @layer utilities {
   .ds-transition {
-    transition: background-color var(--ds-motion-fast), color var(--ds-motion-fast), border-color var(--ds-motion-fast), box-shadow var(--ds-motion-base), opacity var(--ds-motion-fast);
+    transition: background-color var(--ds-motion-fast), color var(--ds-motion-fast), border-color var(--ds-motion-fast), box-shadow var(--ds-motion-base), opacity var(--ds-motion-fast), transform var(--ds-motion-fast);
   }
 
   .no-scrollbar {

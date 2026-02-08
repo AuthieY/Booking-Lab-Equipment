@@ -55,7 +55,7 @@ const BookingModal = ({ isOpen, onClose, initialDate, initialHour, instrument, o
   return (
     <div className="ds-overlay" role="presentation">
       <div
-        className="ds-modal ds-modal-sm ds-section overflow-y-auto max-h-[90vh]"
+        className="ds-modal ds-modal-sm ds-section ds-animate-modal overflow-y-auto max-h-[90vh]"
         role="dialog"
         aria-modal="true"
         aria-labelledby="booking-modal-title"

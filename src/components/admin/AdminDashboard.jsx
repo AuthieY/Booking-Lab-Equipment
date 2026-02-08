@@ -170,7 +170,7 @@ const AdminDashboard = ({ labName, onLogout }) => {
   };
 
   return (
-    <div className="min-h-screen ds-page font-sans">
+    <div className="min-h-screen ds-page font-sans ds-animate-enter-fast">
         <header className="bg-slate-800 text-white px-4 md:px-6 py-3 md:py-4 flex justify-between items-center sticky top-0 z-50 shadow-sm">
             <div className="flex items-center gap-3">
               <div className="bg-slate-700 p-2 rounded-lg"><ShieldCheck className="w-6 h-6 text-yellow-400"/></div>

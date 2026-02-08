@@ -54,7 +54,7 @@ const InstrumentModal = ({ isOpen, onClose, onSave, initialData, existingInstrum
 
   return (
     <div className="ds-overlay" role="presentation">
-      <div className="ds-modal ds-modal-md ds-section overflow-y-auto max-h-[90vh]" role="dialog" aria-modal="true" aria-labelledby="instrument-modal-title">
+      <div className="ds-modal ds-modal-md ds-section ds-animate-modal overflow-y-auto max-h-[90vh]" role="dialog" aria-modal="true" aria-labelledby="instrument-modal-title">
         <h3 id="instrument-modal-title" className="text-lg font-bold mb-4 text-slate-800">{initialData ? 'Edit instrument' : 'Add instrument'}</h3>
         <form onSubmit={handleSubmit} className="space-y-4">
           <button

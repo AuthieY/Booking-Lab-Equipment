@@ -63,7 +63,7 @@ const InstrumentSelectionModal = ({
   };
 
   return (
-    <div className="fixed inset-0 ds-page z-[80] flex flex-col" role="dialog" aria-modal="true" aria-labelledby="instrument-selection-title">
+    <div className="fixed inset-0 ds-page z-[80] flex flex-col ds-animate-enter-fast" role="dialog" aria-modal="true" aria-labelledby="instrument-selection-title">
       <div className="bg-white px-4 py-4 flex items-center gap-3 sticky top-0 z-10 border-b border-[var(--ds-border)]">
         <button type="button" onClick={onClose} aria-label="Close switch view" className="p-2 rounded-full hover:bg-slate-100">
           <X className="w-6 h-6 text-slate-600"/>

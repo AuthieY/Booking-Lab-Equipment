@@ -10,7 +10,7 @@ const IdentityScreen = ({ labName, onIdentityVerified }) => {
     } catch (err) { setError('Unable to verify identity.'); } finally { setLoading(false); }
   };
   return (
-    <div className="flex flex-col items-center justify-center min-h-screen ds-page p-4 md:p-6">
+    <div className="flex flex-col items-center justify-center min-h-screen ds-page p-4 md:p-6 ds-animate-enter-fast">
       <div className="w-full max-w-md ds-card ds-section-lg">
         <h1 className="text-2xl font-bold text-center mb-2 text-slate-800">Identity verification</h1>
         <p className="text-xs text-slate-500 text-center mb-6">Enter your name and password to continue.</p>
