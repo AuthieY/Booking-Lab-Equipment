@@ -2,11 +2,12 @@ import React, { useState, useEffect } from 'react';
 import { X, Sun, Moon, Clock3, Repeat, Loader2, Beaker } from 'lucide-react';
 import { getColorStyle } from '../../utils/helpers';
 
-const BookingModal = ({ isOpen, onClose, initialDate, initialHour, instrument, onConfirm, isBooking, getConflictPreview }) => {
+const BookingModal = ({ isOpen, onClose, initialDate, initialHour, instrument, onConfirm, isBooking, getConflictPreview, getQuantityLimit }) => {
   const [repeatOption, setRepeatOption] = useState(0); 
   const [bookingMode, setBookingMode] = useState('hourly');
-  const [quantity, setQuantity] = useState(1);
+  const [quantity, setQuantity] = useState('1');
   const [conflictPreview, setConflictPreview] = useState({ count: 0, first: '' });
+  const [quantityLimit, setQuantityLimit] = useState(null);
 
   const styles = getColorStyle(instrument?.color || 'blue');
   const maxCap = instrument?.maxCapacity || 1;
@@ -26,20 +27,85 @@ const BookingModal = ({ isOpen, onClose, initialDate, initialHour, instrument, o
       : isWorkingHours
         ? '09:00-17:00'
         : `${initialHour}:00`;
+  const dynamicUpperBound = Math.max(
+    0,
+    Math.min(maxCap, Number(quantityLimit?.maxAllowed ?? maxCap))
+  );
+
+  const normalizeQuantity = (value) => {
+    if (dynamicUpperBound <= 0) return 0;
+    const parsed = Number.parseInt(String(value), 10);
+    if (Number.isNaN(parsed)) return 1;
+    return Math.min(dynamicUpperBound, Math.max(1, parsed));
+  };
+  const isQuantityRequired = maxCap > 1;
+  const isQuantityDepleted = isQuantityRequired && dynamicUpperBound <= 0;
+  const isQuantityMissing = isQuantityRequired && quantity.trim() === '';
+  const isQuantityValid = !isQuantityRequired || (!isQuantityMissing && !isQuantityDepleted);
+  const resolvedQuantity = normalizeQuantity(quantity);
+  const effectiveQuantity = isQuantityRequired ? resolvedQuantity : 1;
+  const handleQuantityChange = (event) => {
+    const rawValue = event.target.value;
+    if (!/^\d*$/.test(rawValue)) return;
+    if (rawValue === '') {
+      setQuantity('');
+      return;
+    }
+    if (dynamicUpperBound <= 0) {
+      setQuantity('');
+      return;
+    }
+    setQuantity(String(Math.min(dynamicUpperBound, Number(rawValue))));
+  };
+  const handleQuantityBlur = () => {
+    if (dynamicUpperBound <= 0) {
+      setQuantity('');
+      return;
+    }
+    setQuantity(String(resolvedQuantity));
+  };
 
   useEffect(() => { 
     if (isOpen) {
-      setQuantity(1);
+      setQuantity('1');
       setRepeatOption(0);
       setBookingMode('hourly');
+      setQuantityLimit(null);
     }
   }, [instrument, isOpen]);
 
   useEffect(() => {
+    if (!isOpen || !getQuantityLimit) {
+      setQuantityLimit(null);
+      return;
+    }
+    const limit = getQuantityLimit({ repeatOption, isFullDay, isOvernight, isWorkingHours });
+    setQuantityLimit(limit || null);
+  }, [isOpen, repeatOption, bookingMode, getQuantityLimit, isFullDay, isOvernight, isWorkingHours]);
+
+  useEffect(() => {
+    if (!isOpen || !isQuantityRequired) return;
+    if (dynamicUpperBound <= 0) {
+      setQuantity('');
+      return;
+    }
+    if (quantity.trim() === '') return;
+    const current = Number.parseInt(quantity, 10);
+    if (Number.isNaN(current)) return;
+    if (current > dynamicUpperBound) {
+      setQuantity(String(dynamicUpperBound));
+    }
+  }, [isOpen, isQuantityRequired, dynamicUpperBound, quantity]);
+
+  useEffect(() => {
     if (!isOpen || !getConflictPreview) return;
-    const preview = getConflictPreview({ repeatOption, isFullDay, isOvernight, isWorkingHours, quantity });
+    if (isQuantityMissing || isQuantityDepleted) {
+      setConflictPreview({ count: 0, first: '' });
+      return;
+    }
+    const preview = getConflictPreview({ repeatOption, isFullDay, isOvernight, isWorkingHours, quantity: effectiveQuantity });
     setConflictPreview(preview || { count: 0, first: '' });
-  }, [isOpen, repeatOption, bookingMode, quantity, getConflictPreview]);
+  }, [isOpen, repeatOption, bookingMode, effectiveQuantity, isQuantityMissing, isQuantityDepleted, getConflictPreview]);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -83,17 +149,28 @@ const BookingModal = ({ isOpen, onClose, initialDate, initialHour, instrument, o
               {/* Keep 16px input text to prevent iOS auto-zoom on focus. */}
               <input 
                 id="booking-quantity"
-                type="number" 
+                type="text"
+                inputMode="numeric"
+                pattern="[0-9]*"
                 min="1" 
-                max={maxCap} 
+                max={Math.max(1, dynamicUpperBound)} 
                 value={quantity} 
                 aria-describedby="booking-quantity-help"
-                onChange={e=>setQuantity(Math.min(maxCap, Math.max(1, Number(e.target.value))))} 
+                onChange={handleQuantityChange}
+                onBlur={handleQuantityBlur}
+                disabled={isQuantityDepleted}
                 className="w-full p-3 rounded-lg border-2 border-indigo-200 outline-none font-medium text-base text-indigo-700 font-data tabular-nums"
               />
               <div id="booking-quantity-help" className="mt-1 text-[11px] text-indigo-600">
-                Enter quantity between 1 and {maxCap}.
+                {isQuantityDepleted
+                  ? 'No quantity available for the selected slot.'
+                  : `Enter quantity between 1 and ${dynamicUpperBound}.`}
               </div>
+              {isQuantityMissing && !isQuantityDepleted && (
+                <div className="mt-1 text-[11px] text-red-600" role="alert">
+                  Quantity is required.
+                </div>
+              )}
             </div>
           )}
 
@@ -145,7 +222,7 @@ const BookingModal = ({ isOpen, onClose, initialDate, initialHour, instrument, o
             </div>
           )}
 
-          <button type="button" onClick={() => onConfirm(repeatOption, isFullDay, null, isOvernight, isWorkingHours, quantity)} disabled={isBooking || conflictPreview.count > 0} className={`w-full py-4 ds-btn text-white transition-all ${styles.darkBg} disabled:opacity-50`} aria-busy={isBooking}>
+          <button type="button" onClick={() => onConfirm(repeatOption, isFullDay, null, isOvernight, isWorkingHours, effectiveQuantity)} disabled={isBooking || conflictPreview.count > 0 || !isQuantityValid} className={`w-full py-4 ds-btn text-white transition-all ${styles.darkBg} disabled:opacity-50`} aria-busy={isBooking}>
             {isBooking ? <Loader2 className="animate-spin w-5 h-5 mx-auto"/> : conflictPreview.count > 0 ? "Resolve conflicts" : "Confirm booking"}
           </button>
         </div>

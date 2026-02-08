@@ -973,6 +973,27 @@ const MemberApp = ({ labName, userName, onLogout }) => {
         instrument={bookingModal.instrument}
         onConfirm={handleConfirmBooking}
         isBooking={isBookingProcess}
+        getQuantityLimit={({ repeatOption, isFullDay, isOvernight, isWorkingHours }) => {
+          if (!bookingModal.instrument) return { maxAllowed: 1 };
+          const capacity = bookingModal.instrument.maxCapacity || 1;
+          const slots = buildBookingSlots({
+            startDateStr: bookingModal.date,
+            startHour: bookingModal.hour,
+            repeatCount: repeatOption,
+            isFullDay,
+            isOvernight,
+            isWorkingHours
+          });
+          if (slots.length === 0) return { maxAllowed: capacity };
+
+          const minRemaining = slots.reduce((acc, slot) => {
+            const used = (bookingsByInstrumentSlot.get(getInstSlotKey(bookingModal.instrument.id, slot.date, slot.hour)) || [])
+              .reduce((sum, b) => sum + (Number(b.requestedQuantity) || 1), 0);
+            return Math.min(acc, Math.max(0, capacity - used));
+          }, capacity);
+
+          return { maxAllowed: minRemaining };
+        }}
         getConflictPreview={({ repeatOption, isFullDay, isOvernight, isWorkingHours, quantity }) => {
           if (!bookingModal.instrument) return { count: 0, first: '' };
           const slots = buildBookingSlots({
