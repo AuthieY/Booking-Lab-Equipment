@@ -11,6 +11,9 @@ import { getFormattedDate, addDays, getMonday, getColorStyle } from '../../utils
 import NoteModal from '../modals/NoteModal';
 import BookingModal from '../modals/BookingModal';
 import InstrumentSelectionModal from '../modals/InstrumentSelectionModal';
+import ToastStack from '../common/ToastStack';
+import { useToast } from '../../hooks/useToast';
+import { buildBookingSlots, summarizeBlockingBookings, sortSlotsForDisplay, getPrimarySlot, getOverflowCount } from '../../utils/booking';
 
 const MemberApp = ({ labName, userName, onLogout }) => {
   const [viewMode, setViewMode] = useState('day');
@@ -35,40 +38,55 @@ const MemberApp = ({ labName, userName, onLogout }) => {
     hour: 0,
     slots: [],
     isBlocked: false,
+    isPast: false,
     blockLabel: '',
     totalUsed: 0,
     canBook: false
   });
   
   const scrollTargetRef = useRef(null);
+  const { toasts, pushToast, dismissToast } = useToast();
   const hours = useMemo(() => Array.from({ length: 24 }, (_, i) => i), []);
   const selectedDateStr = useMemo(() => getFormattedDate(date), [date]);
-  const isToday = useMemo(() => getFormattedDate(new Date()) === selectedDateStr, [selectedDateStr]);
-  const currentHour = new Date().getHours();
+  const now = new Date();
+  const todayDateStr = getFormattedDate(now);
+  const currentWeekStartStr = getFormattedDate(getMonday(now));
+  const isToday = selectedDateStr === todayDateStr;
+  const currentHour = now.getHours();
+  const currentInst = useMemo(
+    () => instruments.find((instrument) => instrument.id === selectedInstrumentId),
+    [instruments, selectedInstrumentId]
+  );
+  const bookingQueryRange = useMemo(() => {
+    const visibleStart = selectedInstrumentId && viewMode === 'week'
+      ? getMonday(date)
+      : new Date(date.getFullYear(), date.getMonth(), date.getDate());
+    const visibleEnd = selectedInstrumentId && viewMode === 'week' ? addDays(visibleStart, 6) : visibleStart;
+    return {
+      queryStart: getFormattedDate(addDays(visibleStart, -1)),
+      queryEnd: getFormattedDate(addDays(visibleEnd, 36))
+    };
+  }, [date, selectedInstrumentId, viewMode]);
 
   const formatHour = (hour) => `${String(hour).padStart(2, '0')}:00`;
   const getSlotKey = (dateStr, hour) => `${dateStr}|${hour}`;
   const getInstSlotKey = (instrumentId, dateStr, hour) => `${instrumentId}|${dateStr}|${hour}`;
+  // Booking lock policy:
+  // Allow any slot in current week and future weeks.
+  // Block only slots before the current week's Monday.
+  const isSlotInPast = (dateStr) => {
+    return dateStr < currentWeekStartStr;
+  };
   const rowHeightClass = 'h-12 md:h-14';
   const getHourBandClass = (hour) => (hour % 2 === 0 ? 'bg-white' : 'bg-slate-50/35');
   const isWorkingHour = (hour) => hour >= 9 && hour < 17;
   const getTimeLabelClass = (hour) => `${rowHeightClass} text-[10px] text-right pr-2 pt-1.5 border-b border-slate-200/80 font-semibold font-data tabular-nums tracking-tight ${getHourBandClass(hour)} ${isToday && hour === currentHour ? 'bg-[#eef8fd] text-[#00407a]' : isWorkingHour(hour) ? 'text-slate-500' : 'text-slate-400'}`;
-  const getSlotCellClass = ({ hour, isBlocked, isMine, totalUsed }) => (
-    `${rowHeightClass} border-b border-slate-200/80 px-1 py-0.5 transition-colors relative ${isBlocked ? 'bg-slate-200/45 cursor-not-allowed' : isMine ? 'bg-[#e6f3fb] border-l-2 border-[#1c7aa0] cursor-pointer' : totalUsed > 0 ? `${getHourBandClass(hour)} cursor-pointer` : `${getHourBandClass(hour)} hover:bg-slate-100/80 cursor-pointer`} ${isWorkingHour(hour) ? 'after:absolute after:inset-x-0 after:bottom-0 after:h-[1px] after:bg-emerald-200/45' : ''} ${isToday && hour === currentHour ? 'ring-1 ring-inset ring-[#52bdec]/70' : ''}`
+  const getSlotCellClass = ({ hour, isBlocked, isMine, totalUsed, isPast }) => (
+    `${rowHeightClass} border-b border-slate-200/80 px-1 py-0.5 transition-colors relative ${isPast ? 'bg-slate-100/80 cursor-not-allowed' : isBlocked ? 'bg-slate-200/45 cursor-not-allowed' : isMine ? 'bg-[#e6f3fb] border-l-2 border-[#1c7aa0] cursor-pointer' : totalUsed > 0 ? `${getHourBandClass(hour)} cursor-pointer` : `${getHourBandClass(hour)} hover:bg-slate-100/80 cursor-pointer`} ${isWorkingHour(hour) ? 'after:absolute after:inset-x-0 after:bottom-0 after:h-[1px] after:bg-emerald-200/45' : ''} ${isToday && hour === currentHour ? 'ring-1 ring-inset ring-[#52bdec]/70' : ''}`
   );
-  const sortSlotsForDisplay = (slots = []) => (
-    [...slots].sort((a, b) => {
-      const am = a.userName === userName ? 0 : 1;
-      const bm = b.userName === userName ? 0 : 1;
-      if (am !== bm) return am - bm;
-      return (a.userName || '').localeCompare(b.userName || '');
-    })
-  );
-  const getPrimarySlot = (slots = []) => sortSlotsForDisplay(slots)[0] || null;
-  const getOverflowCount = (slots = []) => Math.max(0, slots.length - 1);
 
-  const openSlotDetails = ({ instrument, dateStr, hour, slots, isBlocked, blockLabel, totalUsed }) => {
-    const orderedSlots = sortSlotsForDisplay(slots);
+  const openSlotDetails = ({ instrument, dateStr, hour, slots, isBlocked, isPast, blockLabel, totalUsed }) => {
+    const orderedSlots = sortSlotsForDisplay(slots, userName);
     setSlotDetails({
       isOpen: true,
       instrument,
@@ -76,9 +94,10 @@ const MemberApp = ({ labName, userName, onLogout }) => {
       hour,
       slots: orderedSlots,
       isBlocked,
+      isPast,
       blockLabel: blockLabel || '',
       totalUsed,
-      canBook: !isBlocked && totalUsed < (instrument?.maxCapacity || 1)
+      canBook: !isPast && !isBlocked && totalUsed < (instrument?.maxCapacity || 1)
     });
   };
 
@@ -117,16 +136,41 @@ const MemberApp = ({ labName, userName, onLogout }) => {
   useEffect(() => {
     setHasLoadedInstruments(false);
     setHasLoadedBookings(false);
-    const unsubInst = onSnapshot(query(collection(db, 'artifacts', appId, 'public', 'data', 'instruments'), where('labName', '==', labName)), (s) => {
-      setInstruments(s.docs.map(d => ({ id: d.id, ...d.data() })));
-      setHasLoadedInstruments(true);
-    });
-    const unsubBook = onSnapshot(query(collection(db, 'artifacts', appId, 'public', 'data', 'bookings'), where('labName', '==', labName)), (s) => {
-      setBookings(s.docs.map(d => ({ id: d.id, ...d.data() })));
-      setHasLoadedBookings(true);
-    });
+    const instrumentQuery = query(
+      collection(db, 'artifacts', appId, 'public', 'data', 'instruments'),
+      where('labName', '==', labName)
+    );
+    const unsubInst = onSnapshot(
+      instrumentQuery,
+      (snapshot) => {
+        setInstruments(snapshot.docs.map((d) => ({ id: d.id, ...d.data() })));
+        setHasLoadedInstruments(true);
+      },
+      () => {
+        setHasLoadedInstruments(true);
+        pushToast('Unable to load instruments right now.', 'error');
+      }
+    );
+
+    const bookingQuery = query(
+      collection(db, 'artifacts', appId, 'public', 'data', 'bookings'),
+      where('labName', '==', labName),
+      where('date', '>=', bookingQueryRange.queryStart),
+      where('date', '<=', bookingQueryRange.queryEnd)
+    );
+    const unsubBook = onSnapshot(
+      bookingQuery,
+      (snapshot) => {
+        setBookings(snapshot.docs.map((d) => ({ id: d.id, ...d.data() })));
+        setHasLoadedBookings(true);
+      },
+      () => {
+        setHasLoadedBookings(true);
+        pushToast('Unable to load bookings right now.', 'error');
+      }
+    );
     return () => { unsubInst(); unsubBook(); };
-  }, [labName]);
+  }, [labName, bookingQueryRange.queryEnd, bookingQueryRange.queryStart, pushToast]);
 
   useEffect(() => {
     setHasHydratedPinned(false);
@@ -135,7 +179,7 @@ const MemberApp = ({ labName, userName, onLogout }) => {
       const raw = localStorage.getItem(key);
       const parsed = raw ? JSON.parse(raw) : [];
       setPinnedInstrumentIds(Array.isArray(parsed) ? parsed : []);
-    } catch (_) {
+    } catch {
       setPinnedInstrumentIds([]);
     } finally {
       setHasHydratedPinned(true);
@@ -147,7 +191,7 @@ const MemberApp = ({ labName, userName, onLogout }) => {
     try {
       const key = `booking_pinned_instruments:${labName}:${userName}`;
       localStorage.setItem(key, JSON.stringify(pinnedInstrumentIds));
-    } catch (_) {
+    } catch {
       // Ignore storage errors in private mode / restricted environments.
     }
   }, [labName, userName, pinnedInstrumentIds, hasHydratedPinned]);
@@ -202,46 +246,6 @@ const MemberApp = ({ labName, userName, onLogout }) => {
     return sameSlotBookings.filter((b) => enemyIds.has(b.instrumentId));
   };
 
-  const buildBookingSlots = ({ startDateStr, startHour, repeatCount, isFullDay, isOvernight, isWorkingHours }) => {
-    const newSlots = [];
-    const targetDates = [];
-
-    for (let i = 0; i <= repeatCount; i++) {
-      const d = new Date(startDateStr);
-      d.setDate(d.getDate() + (i * 7));
-      targetDates.push(getFormattedDate(d));
-    }
-
-    targetDates.forEach((dStr) => {
-      if (isFullDay) {
-        for (let h = 0; h < 24; h++) newSlots.push({ date: dStr, hour: h });
-      } else if (isWorkingHours) {
-        for (let h = 9; h < 17; h++) newSlots.push({ date: dStr, hour: h });
-      } else if (isOvernight) {
-        for (let h = 17; h <= 23; h++) newSlots.push({ date: dStr, hour: h });
-        const nextDayStr = getFormattedDate(addDays(new Date(dStr), 1));
-        for (let h = 0; h <= 8; h++) newSlots.push({ date: nextDayStr, hour: h });
-      } else {
-        newSlots.push({ date: dStr, hour: startHour });
-      }
-    });
-
-    return newSlots;
-  };
-
-  const getBlockingDetails = (blockingBookings = []) => {
-    const instrumentNames = [...new Set(blockingBookings.map((b) => b.instrumentName || 'Unknown instrument'))].sort();
-    const userNames = [...new Set(blockingBookings.map((b) => b.userName || 'Unknown user'))].sort();
-    const instrumentsText = instrumentNames.join(' & ');
-    const usersText = userNames.join(' & ');
-    return {
-      instrumentsText,
-      usersText,
-      signature: `${instrumentsText}||${usersText}`,
-      labelPrefix: `Conflict: ${instrumentsText} booked by ${usersText}`
-    };
-  };
-
   const findConflicts = ({ instrument, requestedQty, slots }) => {
     const conflicts = [];
 
@@ -254,7 +258,7 @@ const MemberApp = ({ labName, userName, onLogout }) => {
         conflicts.push(`${slot.date} ${formatHour(slot.hour)} (Full)`);
       }
       if (blockingBookings.length > 0) {
-        const blockingDetails = getBlockingDetails(blockingBookings);
+        const blockingDetails = summarizeBlockingBookings(blockingBookings);
         conflicts.push(`${slot.date} ${formatHour(slot.hour)} (${blockingDetails.labelPrefix})`);
       }
     });
@@ -268,7 +272,7 @@ const MemberApp = ({ labName, userName, onLogout }) => {
 
     while (hour < 24) {
       const startBlockers = getBlockingBookings(instrumentId, dateStr, hour);
-      const startDetails = getBlockingDetails(startBlockers);
+      const startDetails = summarizeBlockingBookings(startBlockers);
 
       if (!startDetails.instrumentsText) {
         hour += 1;
@@ -281,7 +285,7 @@ const MemberApp = ({ labName, userName, onLogout }) => {
 
       while (end < 24) {
         const nextBlockers = getBlockingBookings(instrumentId, dateStr, end);
-        const nextDetails = getBlockingDetails(nextBlockers);
+        const nextDetails = summarizeBlockingBookings(nextBlockers);
         if (nextDetails.signature !== signature) break;
         end += 1;
       }
@@ -301,29 +305,110 @@ const MemberApp = ({ labName, userName, onLogout }) => {
     });
     return map;
   }, [instruments, selectedDateStr, bookingsBySlot, conflictIdsByInstrument]);
+  const weekDays = useMemo(() => {
+    const monday = getMonday(date);
+    return Array.from({ length: 7 }, (_, index) => {
+      const day = new Date(monday);
+      day.setDate(monday.getDate() + index);
+      return day;
+    });
+  }, [date]);
 
-  const handleConfirmBooking = async (repeatCount, isFullDay, subOption, isOvernight, isWorkingHours, requestedQty) => {
+  const daySlotMetricsByInstrument = useMemo(() => {
+    const map = {};
+    instruments.forEach((inst) => {
+      const hourMap = {};
+      for (let hour = 0; hour < 24; hour += 1) {
+        const slots = bookingsByInstrumentSlot.get(getInstSlotKey(inst.id, selectedDateStr, hour)) || [];
+        const totalUsed = slots.reduce((sum, booking) => sum + (Number(booking.requestedQuantity) || 1), 0);
+        const isMine = slots.some((slot) => slot.userName === userName);
+        const primarySlot = getPrimarySlot(slots, userName);
+        const overflowCount = getOverflowCount(slots);
+        const blockHint = blockingHintsByInstrumentForDate[inst.id]?.[hour];
+        const isBlocked = Boolean(blockHint) && !isMine;
+        const isPast = isSlotInPast(selectedDateStr);
+        hourMap[hour] = { slots, totalUsed, isMine, primarySlot, overflowCount, blockHint, isBlocked, isPast };
+      }
+      map[inst.id] = hourMap;
+    });
+    return map;
+  }, [instruments, bookingsByInstrumentSlot, selectedDateStr, userName, blockingHintsByInstrumentForDate, currentWeekStartStr]);
+
+  const weeklySlotMetrics = useMemo(() => {
+    if (!currentInst || viewMode !== 'week') return new Map();
+    const map = new Map();
+
+    weekDays.forEach((day) => {
+      const dateStr = getFormattedDate(day);
+      for (let hour = 0; hour < 24; hour += 1) {
+        const slots = bookingsByInstrumentSlot.get(getInstSlotKey(currentInst.id, dateStr, hour)) || [];
+        const totalUsed = slots.reduce((sum, booking) => sum + (Number(booking.requestedQuantity) || 1), 0);
+        const isMine = slots.some((slot) => slot.userName === userName);
+        const primarySlot = getPrimarySlot(slots, userName);
+        const overflowCount = getOverflowCount(slots);
+        const blockingBookings = getBlockingBookings(currentInst.id, dateStr, hour);
+        const blockingDetails = summarizeBlockingBookings(blockingBookings);
+        const prevBlockingBookings = hour > 0 ? getBlockingBookings(currentInst.id, dateStr, hour - 1) : [];
+        const prevBlockingDetails = summarizeBlockingBookings(prevBlockingBookings);
+        const isBlocked = Boolean(blockingDetails.instrumentsText) && !isMine;
+        const isBlockStart = isBlocked && (hour === 0 || prevBlockingDetails.signature !== blockingDetails.signature);
+        const isPast = isSlotInPast(dateStr);
+
+        map.set(getSlotKey(dateStr, hour), {
+          dateStr,
+          slots,
+          totalUsed,
+          isMine,
+          primarySlot,
+          overflowCount,
+          blockingDetails,
+          isBlocked,
+          isBlockStart,
+          isPast
+        });
+      }
+    });
+
+    return map;
+  }, [currentInst, viewMode, weekDays, bookingsByInstrumentSlot, userName, bookingsBySlot, conflictIdsByInstrument, currentWeekStartStr]);
+
+  const handleConfirmBooking = async (repeatCount, isFullDay, _subOption, isOvernight, isWorkingHours, requestedQty) => {
     if (!bookingModal.instrument) return;
     setIsBookingProcess(true);
     const { date: startDateStr, hour: startHour, instrument } = bookingModal; 
     const batch = writeBatch(db); 
     const newSlots = buildBookingSlots({ startDateStr, startHour, repeatCount, isFullDay, isOvernight, isWorkingHours });
-    const bookingGroupId = (isFullDay || isOvernight || isWorkingHours || repeatCount > 0) ? `GRP-${Date.now()}-${Math.random().toString(36).substr(2,4)}` : null;
+    const bookingToken = globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+    const bookingGroupId = (isFullDay || isOvernight || isWorkingHours || repeatCount > 0) ? `GRP-${bookingToken}` : null;
+    const firstPastSlot = newSlots.find((slot) => isSlotInPast(slot.date));
     const conflicts = findConflicts({ instrument, requestedQty, slots: newSlots });
 
-    if (conflicts.length > 0) { alert(`Conflict at: ${conflicts[0]}`); setIsBookingProcess(false); return; }
+    if (firstPastSlot) {
+      pushToast(`Cannot book before current week start (${currentWeekStartStr}).`, 'warning', 4400);
+      setIsBookingProcess(false);
+      return;
+    }
+
+    if (conflicts.length > 0) {
+      pushToast(`Conflict detected: ${conflicts[0]}`, 'warning', 4400);
+      setIsBookingProcess(false);
+      return;
+    }
     
     try {
       newSlots.forEach(slot => {
         batch.set(doc(collection(db, 'artifacts', appId, 'public', 'data', 'bookings')), {
           labName, instrumentId: instrument.id, instrumentName: instrument.name, date: slot.date, hour: slot.hour, 
-          userName, authUid: auth.currentUser.uid, requestedQuantity: Number(requestedQty), bookingGroupId, createdAt: serverTimestamp()
+          userName, authUid: auth.currentUser?.uid || null, requestedQuantity: Number(requestedQty), bookingGroupId, createdAt: serverTimestamp()
         });
       });
       await batch.commit(); 
       await addAuditLog(labName, 'BOOKING', `Booked: ${instrument.name} (${requestedQty} qty)`, userName);
       setBookingModal({ ...bookingModal, isOpen: false });
-    } catch (e) { alert("Booking failed. Please try again."); } finally { setIsBookingProcess(false); }
+      pushToast('Booking confirmed.', 'success');
+    } catch {
+      pushToast('Booking failed. Please try again.', 'error');
+    } finally { setIsBookingProcess(false); }
   };
   
   const handleDeleteBooking = async () => { 
@@ -331,17 +416,23 @@ const MemberApp = ({ labName, userName, onLogout }) => {
     const batch = writeBatch(db);
     try {
       if (bookingToDelete.bookingGroupId) {
-        const q = query(collection(db, 'artifacts', appId, 'public', 'data', 'bookings'), where('bookingGroupId', '==', bookingToDelete.bookingGroupId));
+        const q = query(
+          collection(db, 'artifacts', appId, 'public', 'data', 'bookings'),
+          where('bookingGroupId', '==', bookingToDelete.bookingGroupId),
+          where('labName', '==', labName)
+        );
         const snap = await getDocs(q);
         snap.docs.forEach(d => batch.delete(d.ref));
         await batch.commit();
         await addAuditLog(labName, 'CANCEL_BATCH', `Batch cancel: ${bookingToDelete.instrumentName}`, userName);
+        pushToast('Batch booking cancelled.', 'success');
       } else {
         await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'bookings', bookingToDelete.id));
         await addAuditLog(labName, 'CANCEL', `Cancelled: ${bookingToDelete.instrumentName}`, userName);
+        pushToast('Booking cancelled.', 'success');
       }
       setBookingToDelete(null); 
-    } catch (e) { alert("Unable to cancel booking. Please try again."); }
+    } catch { pushToast("Unable to cancel booking. Please try again.", 'error'); }
   };
 
   const handleSaveNote = async (msg) => {
@@ -349,11 +440,11 @@ const MemberApp = ({ labName, userName, onLogout }) => {
     if (!inst) return;
     try {
         await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'notes'), { labName, instrumentId: inst.id, instrumentName: inst.name, userName, message: msg, timestamp: serverTimestamp() });
-        setShowNoteModal(false); alert("Report sent.");
-    } catch (e) { alert("Unable to send report. Please try again."); }
+        setShowNoteModal(false);
+        pushToast("Report sent.", 'success');
+    } catch { pushToast("Unable to send report. Please try again.", 'error'); }
   };
 
-  const weekDays = useMemo(() => { const m = getMonday(date); return Array.from({ length: 7 }, (_, i) => { const d = new Date(m); d.setDate(m.getDate() + i); return d; }); }, [date]);
   const overviewInstruments = useMemo(() => {
     const pinnedSet = new Set(pinnedInstrumentIds);
     return instruments
@@ -365,7 +456,6 @@ const MemberApp = ({ labName, userName, onLogout }) => {
         return a.name.localeCompare(b.name);
       });
   }, [instruments, overviewInstrumentIds, pinnedInstrumentIds]);
-  const currentInst = instruments.find(i => i.id === selectedInstrumentId);
   const overviewLabel = useMemo(() => {
     if (!hasLoadedInstruments) return 'Loading...';
     if (currentInst) return currentInst.name;
@@ -419,11 +509,15 @@ const MemberApp = ({ labName, userName, onLogout }) => {
     maxCapacity,
     isMine,
     isBlocked,
+    isPast,
     blockLabel,
     primarySlot,
     overflowCount
   }) => {
     const timeLabel = `${formatHour(hour)} on ${dateStr}`;
+    if (isPast) {
+      return `${instrumentName}, ${timeLabel}. Previous week slot. Booking disabled.`;
+    }
     if (isBlocked) {
       return `${instrumentName}, ${timeLabel}. Blocked by conflict. ${blockLabel || 'Conflict detected.'}`;
     }
@@ -590,17 +684,23 @@ const MemberApp = ({ labName, userName, onLogout }) => {
                  <div key={inst.id} className="w-[5.5rem] md:w-24 border-r border-slate-200/80">
                    <div className={`h-9 md:h-10 flex items-center justify-center text-[9px] md:text-[10px] font-bold sticky top-0 z-10 border-b border-slate-200/80 px-1 text-center whitespace-normal leading-tight ${getColorStyle(inst.color).bg} ${getColorStyle(inst.color).text}`}>{inst.name}</div>
                    {hours.map(h => {
-                     const slots = bookingsByInstrumentSlot.get(getInstSlotKey(inst.id, selectedDateStr, h)) || [];
-                     const totalUsed = slots.reduce((s, b) => s + (Number(b.requestedQuantity) || 1), 0);
-                     const isMine = slots.some(s => s.userName === userName);
-                     const primarySlot = getPrimarySlot(slots);
-                     const overflowCount = getOverflowCount(slots);
-                     const blockHint = blockingHintsByInstrumentForDate[inst.id]?.[h];
-                     const isBlocked = Boolean(blockHint) && !isMine;
+                     const metric = daySlotMetricsByInstrument[inst.id]?.[h] || {};
+                     const slots = metric.slots || [];
+                     const totalUsed = metric.totalUsed || 0;
+                     const isMine = Boolean(metric.isMine);
+                     const primarySlot = metric.primarySlot || null;
+                     const overflowCount = metric.overflowCount || 0;
+                     const blockHint = metric.blockHint;
+                     const isBlocked = Boolean(metric.isBlocked);
+                     const isPast = Boolean(metric.isPast);
                      const handleActivateSlot = () => {
+                       if (isPast) {
+                         pushToast('Booking before current week is not allowed.', 'warning');
+                         return;
+                       }
                        if (isMine) setBookingToDelete(slots.find(s => s.userName === userName));
                        else if (isBlocked) return;
-                       else if (totalUsed >= (inst.maxCapacity || 1)) alert("This slot is fully booked.");
+                       else if (totalUsed >= (inst.maxCapacity || 1)) pushToast("This slot is fully booked.", 'warning');
                        else setBookingModal({ isOpen: true, date: selectedDateStr, hour: h, instrument: inst });
                      };
                      const slotAriaLabel = getSlotAriaLabel({
@@ -611,6 +711,7 @@ const MemberApp = ({ labName, userName, onLogout }) => {
                        maxCapacity: inst.maxCapacity || 1,
                        isMine,
                        isBlocked,
+                       isPast,
                        blockLabel: blockHint?.label,
                        primarySlot,
                        overflowCount
@@ -623,7 +724,7 @@ const MemberApp = ({ labName, userName, onLogout }) => {
                          role="button"
                          tabIndex={0}
                          aria-label={slotAriaLabel}
-                         className={getSlotCellClass({ hour: h, isBlocked, isMine, totalUsed })}
+                         className={getSlotCellClass({ hour: h, isBlocked, isMine, totalUsed, isPast })}
                        >
                          {isBlocked && blockHint?.isStart && (
                            <button
@@ -638,6 +739,7 @@ const MemberApp = ({ labName, userName, onLogout }) => {
                                  hour: h,
                                  slots,
                                  isBlocked,
+                                 isPast,
                                  blockLabel: blockHint.label,
                                  totalUsed
                                });
@@ -664,6 +766,7 @@ const MemberApp = ({ labName, userName, onLogout }) => {
                                  hour: h,
                                  slots,
                                  isBlocked,
+                                 isPast,
                                  blockLabel: blockHint?.label || '',
                                  totalUsed
                                });
@@ -699,17 +802,23 @@ const MemberApp = ({ labName, userName, onLogout }) => {
                 </div>
                 <div className="flex-1">
               {hours.map(h => { 
-                const slots = bookingsByInstrumentSlot.get(getInstSlotKey(selectedInstrumentId, selectedDateStr, h)) || [];
-                const totalUsed = slots.reduce((s, b) => s + (Number(b.requestedQuantity) || 1), 0);
-                const isMine = slots.some(s => s.userName === userName);
-                const primarySlot = getPrimarySlot(slots);
-                const overflowCount = getOverflowCount(slots);
-                const blockHint = blockingHintsByInstrumentForDate[selectedInstrumentId]?.[h];
-                const isBlocked = Boolean(blockHint) && !isMine;
+                const metric = daySlotMetricsByInstrument[selectedInstrumentId]?.[h] || {};
+                const slots = metric.slots || [];
+                const totalUsed = metric.totalUsed || 0;
+                const isMine = Boolean(metric.isMine);
+                const primarySlot = metric.primarySlot || null;
+                const overflowCount = metric.overflowCount || 0;
+                const blockHint = metric.blockHint;
+                const isBlocked = Boolean(metric.isBlocked);
+                const isPast = Boolean(metric.isPast);
                 const handleActivateSlot = () => {
+                  if (isPast) {
+                    pushToast('Booking before current week is not allowed.', 'warning');
+                    return;
+                  }
                   if (isMine) setBookingToDelete(slots.find(s=>s.userName===userName));
                   else if (isBlocked) return;
-                  else if (totalUsed >= (currentInst.maxCapacity || 1)) alert("This slot is fully booked.");
+                  else if (totalUsed >= (currentInst.maxCapacity || 1)) pushToast("This slot is fully booked.", 'warning');
                   else setBookingModal({ isOpen: true, date: selectedDateStr, hour:h, instrument: currentInst });
                 };
                 const slotAriaLabel = getSlotAriaLabel({
@@ -720,6 +829,7 @@ const MemberApp = ({ labName, userName, onLogout }) => {
                   maxCapacity: currentInst?.maxCapacity || 1,
                   isMine,
                   isBlocked,
+                  isPast,
                   blockLabel: blockHint?.label,
                   primarySlot,
                   overflowCount
@@ -729,10 +839,10 @@ const MemberApp = ({ labName, userName, onLogout }) => {
                     onClick={handleActivateSlot}
                     onKeyDown={(event) => handleKeyboardActivation(event, handleActivateSlot)}
                     role="button"
-                    tabIndex={0}
-                    aria-label={slotAriaLabel}
-                    className={getSlotCellClass({ hour: h, isBlocked, isMine, totalUsed })}
-                  >
+                         tabIndex={0}
+                         aria-label={slotAriaLabel}
+                         className={getSlotCellClass({ hour: h, isBlocked, isMine, totalUsed, isPast })}
+                       >
                     {isBlocked && blockHint?.isStart && (
                       <button
                         type="button"
@@ -746,6 +856,7 @@ const MemberApp = ({ labName, userName, onLogout }) => {
                             hour: h,
                             slots,
                             isBlocked,
+                            isPast,
                             blockLabel: blockHint.label,
                             totalUsed
                           });
@@ -770,6 +881,7 @@ const MemberApp = ({ labName, userName, onLogout }) => {
                                 hour: h,
                                 slots,
                                 isBlocked,
+                                isPast,
                                 blockLabel: blockHint?.label || '',
                                 totalUsed
                               });
@@ -812,20 +924,24 @@ const MemberApp = ({ labName, userName, onLogout }) => {
                     </div>
                     {weekDays.map((day, i) => {
                       const dateStr = getFormattedDate(day); 
-                      const slots = bookingsByInstrumentSlot.get(getInstSlotKey(currentInst.id, dateStr, hour)) || [];
-                      const isMine = slots.some(s => s.userName === userName);
-                      const primarySlot = getPrimarySlot(slots);
-                      const overflowCount = getOverflowCount(slots);
-                      const blockingBookings = getBlockingBookings(currentInst.id, dateStr, hour);
-                      const blockingDetails = getBlockingDetails(blockingBookings);
-                      const prevBlockingBookings = hour > 0 ? getBlockingBookings(currentInst.id, dateStr, hour - 1) : [];
-                      const prevBlockingDetails = getBlockingDetails(prevBlockingBookings);
-                      const totalUsed = slots.reduce((s, b) => s + (Number(b.requestedQuantity) || 1), 0);
-                      const isBlocked = Boolean(blockingDetails.instrumentsText) && !isMine;
-                      const isBlockStart = isBlocked && (hour === 0 || prevBlockingDetails.signature !== blockingDetails.signature);
+                      const metric = weeklySlotMetrics.get(getSlotKey(dateStr, hour)) || {};
+                      const slots = metric.slots || [];
+                      const isMine = Boolean(metric.isMine);
+                      const primarySlot = metric.primarySlot || null;
+                      const overflowCount = metric.overflowCount || 0;
+                      const blockingDetails = metric.blockingDetails || { labelPrefix: '', instrumentsText: '' };
+                      const totalUsed = metric.totalUsed || 0;
+                      const isBlocked = Boolean(metric.isBlocked);
+                      const isBlockStart = Boolean(metric.isBlockStart);
+                      const isPast = Boolean(metric.isPast);
                       const handleActivateSlot = () => {
+                        if (isPast) {
+                          pushToast('Booking before current week is not allowed.', 'warning');
+                          return;
+                        }
                         if (isMine) setBookingToDelete(slots.find(s=>s.userName===userName));
                         else if (isBlocked) return;
+                        else if (totalUsed >= (currentInst.maxCapacity || 1)) pushToast("This slot is fully booked.", 'warning');
                         else setBookingModal({isOpen:true, date:dateStr, hour, instrument: currentInst});
                       };
                       const slotAriaLabel = getSlotAriaLabel({
@@ -836,13 +952,14 @@ const MemberApp = ({ labName, userName, onLogout }) => {
                         maxCapacity: currentInst?.maxCapacity || 1,
                         isMine,
                         isBlocked,
+                        isPast,
                         blockLabel: blockingDetails.labelPrefix,
                         primarySlot,
                         overflowCount
                       });
                       return (
                         <div key={i} onClick={handleActivateSlot} onKeyDown={(event) => handleKeyboardActivation(event, handleActivateSlot)} role="button" tabIndex={0} aria-label={slotAriaLabel}
-                             className={getSlotCellClass({ hour, isBlocked, isMine, totalUsed })}>
+                             className={getSlotCellClass({ hour, isBlocked, isMine, totalUsed, isPast })}>
                           {isBlocked && isBlockStart && (
                             <button
                               type="button"
@@ -856,6 +973,7 @@ const MemberApp = ({ labName, userName, onLogout }) => {
                                   hour,
                                   slots,
                                   isBlocked,
+                                  isPast,
                                   blockLabel: blockingDetails.labelPrefix,
                                   totalUsed
                                 });
@@ -880,6 +998,7 @@ const MemberApp = ({ labName, userName, onLogout }) => {
                                   hour,
                                   slots,
                                   isBlocked,
+                                  isPast,
                                   blockLabel: blockingDetails.labelPrefix,
                                   totalUsed
                                 });
@@ -1008,7 +1127,7 @@ const MemberApp = ({ labName, userName, onLogout }) => {
           return { count: conflicts.length, first: conflicts[0] || '' };
         }}
       />
-      <NoteModal isOpen={showNoteModal} onClose={()=>setShowNoteModal(false)} instrument={currentInst} userName={userName} onSave={handleSaveNote} />
+      <NoteModal isOpen={showNoteModal} onClose={()=>setShowNoteModal(false)} instrument={currentInst} onSave={handleSaveNote} />
       
       {bookingToDelete && (
         <div className="ds-overlay z-[60]" role="presentation">
@@ -1023,6 +1142,7 @@ const MemberApp = ({ labName, userName, onLogout }) => {
           </div>
         </div>
       )}
+      <ToastStack toasts={toasts} onDismiss={dismissToast} />
     </div>
   );
 };

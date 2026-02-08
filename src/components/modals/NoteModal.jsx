@@ -1,7 +1,10 @@
 import React, { useEffect, useState } from 'react';
 
-const NoteModal = ({ isOpen, onClose, instrument, userName, onSave }) => {
+const NoteModal = ({ isOpen, onClose, instrument, onSave }) => {
     const [msg, setMsg] = useState('');
+    useEffect(() => {
+      if (!isOpen) setMsg('');
+    }, [isOpen]);
     useEffect(() => {
       if (!isOpen) return;
       const handleKeyDown = (event) => {

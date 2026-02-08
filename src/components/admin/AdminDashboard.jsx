@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { 
-  collection, query, where, onSnapshot, addDoc, deleteDoc, updateDoc, doc, serverTimestamp
+  collection, query, where, onSnapshot, addDoc, deleteDoc, updateDoc, doc, serverTimestamp, orderBy, limit, Timestamp
 } from 'firebase/firestore';
 import { 
   ShieldCheck, LogOut, Settings, Book, History, Plus, Pencil, Trash2, MapPin, Wrench, MessageSquare, ChevronDown, ChevronRight
@@ -8,6 +8,9 @@ import {
 import { db, appId, addAuditLog } from '../../api/firebase';
 import { formatTime, getColorStyle } from '../../utils/helpers';
 import InstrumentModal from '../modals/InstrumentModal';
+import ConfirmDialog from '../common/ConfirmDialog';
+import ToastStack from '../common/ToastStack';
+import { useToast } from '../../hooks/useToast';
 
 const AdminDashboard = ({ labName, onLogout }) => {
   const [instruments, setInstruments] = useState([]);
@@ -24,6 +27,9 @@ const AdminDashboard = ({ labName, onLogout }) => {
   const [activeTab, setActiveTab] = useState('INSTRUMENTS'); 
   const [showInstrumentModal, setShowInstrumentModal] = useState(false);
   const [editingInstrument, setEditingInstrument] = useState(null); 
+  const [instrumentToDelete, setInstrumentToDelete] = useState(null);
+  const [noteToDelete, setNoteToDelete] = useState(null);
+  const { toasts, pushToast, dismissToast } = useToast();
   
   useEffect(() => {
     setHasLoadedInstruments(false);
@@ -32,72 +38,111 @@ const AdminDashboard = ({ labName, onLogout }) => {
 
     // 1) Instruments stream
     const qInst = query(collection(db, 'artifacts', appId, 'public', 'data', 'instruments'), where('labName', '==', labName));
-    const unsubInst = onSnapshot(qInst, (snap) => {
-      setInstruments(snap.docs.map(d => ({ id: d.id, ...d.data() })));
-      setHasLoadedInstruments(true);
-    });
+    const unsubInst = onSnapshot(
+      qInst,
+      (snap) => {
+        setInstruments(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+        setHasLoadedInstruments(true);
+      },
+      () => {
+        setHasLoadedInstruments(true);
+        pushToast('Unable to load instruments.', 'error');
+      }
+    );
     
     // 2) Logs stream
-    const qLogs = query(collection(db, 'artifacts', appId, 'public', 'data', 'logs'), where('labName', '==', labName));
-    const unsubLogs = onSnapshot(qLogs, async (snap) => {
-      try {
-        const cutoff = new Date();
-        cutoff.setMonth(cutoff.getMonth() - 2);
-        const oldDocs = snap.docs.filter((d) => {
-          const tsDate = d.data().timestamp?.toDate?.();
-          return tsDate && tsDate < cutoff;
-        });
-        if (oldDocs.length > 0) {
-          await Promise.all(oldDocs.map((d) => deleteDoc(d.ref)));
-        }
-
-        const data = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-        data.sort((a, b) => (b.timestamp?.seconds || 0) - (a.timestamp?.seconds || 0));
-        const recentOnly = data.filter((l) => {
-          const tsDate = l.timestamp?.toDate?.();
-          return tsDate && tsDate >= cutoff;
-        });
-        setLogs(recentOnly);
-      } finally {
+    const cutoff = new Date();
+    cutoff.setMonth(cutoff.getMonth() - 2);
+    const qLogs = query(
+      collection(db, 'artifacts', appId, 'public', 'data', 'logs'),
+      where('labName', '==', labName),
+      where('timestamp', '>=', Timestamp.fromDate(cutoff)),
+      orderBy('timestamp', 'desc'),
+      limit(1200)
+    );
+    const unsubLogs = onSnapshot(
+      qLogs,
+      (snap) => {
+        const data = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+        setLogs(data);
         setHasLoadedLogs(true);
+      },
+      () => {
+        setHasLoadedLogs(true);
+        pushToast('Unable to load logs.', 'error');
       }
-    });
+    );
 
     // 3) Notes / reports stream
     const qNotes = query(collection(db, 'artifacts', appId, 'public', 'data', 'notes'), where('labName', '==', labName));
-    const unsubNotes = onSnapshot(qNotes, (snap) => {
-        const data = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-        data.sort((a, b) => (b.timestamp?.seconds || 0) - (a.timestamp?.seconds || 0));
-        setNotes(data);
+    const unsubNotes = onSnapshot(
+      qNotes,
+      (snap) => {
+          const data = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+          data.sort((a, b) => (b.timestamp?.seconds || 0) - (a.timestamp?.seconds || 0));
+          setNotes(data);
+          setHasLoadedNotes(true);
+      },
+      () => {
         setHasLoadedNotes(true);
-    });
+        pushToast('Unable to load reports.', 'error');
+      }
+    );
 
     return () => { unsubInst(); unsubLogs(); unsubNotes(); };
-  }, [labName]);
+  }, [labName, pushToast]);
 
   // Handle instrument save (includes maintenance and conflict settings).
   const handleSaveInstrument = async (data) => {
-    if (editingInstrument) {
-        const ref = doc(db, 'artifacts', appId, 'public', 'data', 'instruments', editingInstrument.id);
-        await updateDoc(ref, { ...data });
-        await addAuditLog(labName, 'EDIT_INST', `Updated instrument: ${data.name}${data.isUnderMaintenance ? ' (MAINTENANCE ON)' : ''}`, 'Admin');
-    } else {
-        await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'instruments'), { labName, ...data, createdAt: serverTimestamp() });
-        await addAuditLog(labName, 'ADD_INST', `Added instrument: ${data.name}`, 'Admin');
+    try {
+      if (editingInstrument) {
+          const ref = doc(db, 'artifacts', appId, 'public', 'data', 'instruments', editingInstrument.id);
+          await updateDoc(ref, { ...data });
+          await addAuditLog(labName, 'EDIT_INST', `Updated instrument: ${data.name}${data.isUnderMaintenance ? ' (MAINTENANCE ON)' : ''}`, 'Admin');
+          pushToast(`Updated ${data.name}.`, 'success');
+      } else {
+          await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'instruments'), { labName, ...data, createdAt: serverTimestamp() });
+          await addAuditLog(labName, 'ADD_INST', `Added instrument: ${data.name}`, 'Admin');
+          pushToast(`Added ${data.name}.`, 'success');
+      }
+      setShowInstrumentModal(false);
+      setEditingInstrument(null);
+    } catch {
+      pushToast('Unable to save instrument. Please try again.', 'error');
     }
-    setShowInstrumentModal(false);
-    setEditingInstrument(null);
   };
 
-  const handleDeleteInstrument = async (id, name) => {
-    if(!confirm(`Delete instrument "${name}"?`)) return;
-    await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'instruments', id));
-    await addAuditLog(labName, 'DEL_INST', `Deleted instrument: ${name}`, 'Admin');
+  const handleDeleteInstrument = (id, name) => {
+    setInstrumentToDelete({ id, name });
   };
 
-  const handleDeleteNote = async (id) => {
-      if(!confirm("Delete this note?")) return;
-      await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'notes', id));
+  const confirmDeleteInstrument = async () => {
+    if (!instrumentToDelete) return;
+    try {
+      await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'instruments', instrumentToDelete.id));
+      await addAuditLog(labName, 'DEL_INST', `Deleted instrument: ${instrumentToDelete.name}`, 'Admin');
+      pushToast(`Deleted ${instrumentToDelete.name}.`, 'success');
+    } catch {
+      pushToast('Unable to delete instrument. Please try again.', 'error');
+    } finally {
+      setInstrumentToDelete(null);
+    }
+  };
+
+  const handleDeleteNote = (note) => {
+    setNoteToDelete(note);
+  };
+
+  const confirmDeleteNote = async () => {
+    if (!noteToDelete) return;
+    try {
+      await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'notes', noteToDelete.id));
+      pushToast('Report deleted.', 'success');
+    } catch {
+      pushToast('Unable to delete report. Please try again.', 'error');
+    } finally {
+      setNoteToDelete(null);
+    }
   };
 
   const toggleInstrumentNotes = (instrumentId) => {
@@ -291,7 +336,7 @@ const AdminDashboard = ({ labName, onLogout }) => {
                                                     <span className="font-bold text-xs text-slate-700">{note.userName}</span>
                                                     <span className="text-[10px] bg-white px-2 py-0.5 rounded-full border border-slate-200 text-slate-400 font-data tabular-nums">{formatTime(note.timestamp)}</span>
                                                 </div>
-                                                <button type="button" aria-label={`Delete note by ${note.userName}`} onClick={() => handleDeleteNote(note.id)} className="text-slate-300 hover:text-red-500 transition opacity-0 group-hover:opacity-100"><Trash2 className="w-4 h-4"/></button>
+                                                <button type="button" aria-label={`Delete note by ${note.userName}`} onClick={() => handleDeleteNote(note)} className="text-slate-300 hover:text-red-500 transition opacity-0 group-hover:opacity-100"><Trash2 className="w-4 h-4"/></button>
                                             </div>
                                             <p className="text-slate-600 text-xs leading-relaxed whitespace-pre-wrap">{note.message}</p>
                                         </div>
@@ -387,8 +432,8 @@ const AdminDashboard = ({ labName, onLogout }) => {
                                           <div key={log.id} className="px-3 py-2 grid grid-cols-[100px_110px_1fr] gap-2 items-start text-xs hover:bg-slate-50">
                                             <div className="text-slate-400 font-data tabular-nums">{formatTime(log.timestamp)}</div>
                                             <div>
-                                              <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${log.action.includes('CANCEL') ? 'bg-red-100 text-red-600' : 'bg-blue-100 text-blue-600'}`}>
-                                                {log.action}
+                                              <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${(log.action || '').includes('CANCEL') ? 'bg-red-100 text-red-600' : 'bg-blue-100 text-blue-600'}`}>
+                                                {log.action || 'LOG'}
                                               </span>
                                             </div>
                                             <div className="text-slate-600">{log.message}</div>
@@ -435,6 +480,25 @@ const AdminDashboard = ({ labName, onLogout }) => {
           initialData={editingInstrument} 
           existingInstruments={instruments} 
         />
+        <ConfirmDialog
+          isOpen={Boolean(instrumentToDelete)}
+          title="Delete instrument?"
+          message={instrumentToDelete ? `This will remove "${instrumentToDelete.name}" from the lab.` : ''}
+          confirmLabel="Delete"
+          tone="danger"
+          onCancel={() => setInstrumentToDelete(null)}
+          onConfirm={confirmDeleteInstrument}
+        />
+        <ConfirmDialog
+          isOpen={Boolean(noteToDelete)}
+          title="Delete report?"
+          message={noteToDelete ? `Delete the report from ${noteToDelete.userName || 'this user'}?` : ''}
+          confirmLabel="Delete"
+          tone="danger"
+          onCancel={() => setNoteToDelete(null)}
+          onConfirm={confirmDeleteNote}
+        />
+        <ToastStack toasts={toasts} onDismiss={dismissToast} />
     </div>
   );
 };

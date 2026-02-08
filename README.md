@@ -1,16 +1,50 @@
-# React + Vite
+# Lab Equipment Booking App
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+Mobile-first React + Firebase app for booking lab instruments with:
+- Multi-instrument overview calendar
+- Single-instrument day/week calendar
+- Conflict-aware booking
+- Quantity-based booking
+- Admin instrument management, notebook, and logs
 
-Currently, two official plugins are available:
+## Tech Stack
+- React 18 + Vite
+- Firebase Auth (anonymous) + Firestore
+- TailwindCSS + custom design system tokens
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) (or [oxc](https://oxc.rs) when used in [rolldown-vite](https://vite.dev/guide/rolldown)) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
+## Setup
+1. Create a `.env` file (optional, app has current fallback values):
+```bash
+VITE_FIREBASE_API_KEY=...
+VITE_FIREBASE_AUTH_DOMAIN=...
+VITE_FIREBASE_PROJECT_ID=...
+VITE_FIREBASE_STORAGE_BUCKET=...
+VITE_FIREBASE_MESSAGING_SENDER_ID=...
+VITE_FIREBASE_APP_ID=...
+VITE_FIREBASE_MEASUREMENT_ID=...
+VITE_APP_ID=booking-lab
+```
+2. Install dependencies and run:
+```bash
+npm install
+npm run dev
+```
 
-## React Compiler
+## Tests
+```bash
+npm test
+```
+Current tests cover local-date handling and booking slot expansion rules.
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+## Security Notes
+- Lab/member credentials are now stored as hashed credential records (PBKDF2-SHA256) instead of plaintext.
+- Legacy plaintext credentials are auto-migrated to hashed format after a successful login.
+- You still need strict Firestore security rules for production.
 
-## Expanding the ESLint configuration
+## Data and Performance Notes
+- Member booking stream is scoped to a rolling date window around the current view, not full-history.
+- Admin logs are read only for the recent 2 months in UI.
+- Long-term log retention cleanup should run on backend scheduler (Cloud Function/cron), not in client UI.
 
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and [`typescript-eslint`](https://typescript-eslint.io) in your project.
+## Recommended Next Backend Step
+- Add a scheduled cleanup job to physically delete logs older than 2 months.

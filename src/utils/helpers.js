@@ -1,27 +1,23 @@
 // src/utils/helpers.js
+import { formatLocalDate, addDaysLocal, getMondayLocal } from './date';
 
 /**
  * Format a Date as YYYY-MM-DD.
  */
-export const getFormattedDate = (date) => date.toISOString().split('T')[0];
+export const getFormattedDate = (date) => formatLocalDate(date);
 
 /**
  * Add or subtract days from a date.
  */
 export const addDays = (date, days) => {
-  const result = new Date(date);
-  result.setDate(result.getDate() + days);
-  return result;
+  return addDaysLocal(date, days);
 };
 
 /**
  * Get the Monday of the week that contains the given date.
  */
 export const getMonday = (d) => {
-  const date = new Date(d);
-  const day = date.getDay();
-  const diff = date.getDate() - day + (day === 0 ? -6 : 1); 
-  return new Date(date.setDate(diff));
+  return getMondayLocal(d);
 };
 
 /**

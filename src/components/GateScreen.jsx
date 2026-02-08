@@ -1,8 +1,9 @@
 // src/components/GateScreen.jsx
 import React, { useState } from 'react';
-import { collection, query, where, getDocs, addDoc, serverTimestamp } from 'firebase/firestore';
+import { collection, query, where, getDocs, addDoc, serverTimestamp, updateDoc, doc, deleteField } from 'firebase/firestore';
 import { Beaker, ShieldAlert, Lock, AlertCircle, Loader2 } from 'lucide-react';
 import { db, appId, addAuditLog } from '../api/firebase';
+import { createCredentialRecord, verifyCredentialRecord } from '../utils/security';
 
 export const GateScreen = ({ onLoginSuccess }) => {
   const [isCreating, setIsCreating] = useState(false);
@@ -17,7 +18,9 @@ export const GateScreen = ({ onLoginSuccess }) => {
   const checkLabExists = async (name) => {
     const q = query(collection(db, 'artifacts', appId, 'public', 'data', 'labs'), where('name', '==', name));
     const snap = await getDocs(q);
-    return !snap.empty ? snap.docs[0].data() : null;
+    if (snap.empty) return null;
+    const labDoc = snap.docs[0];
+    return { id: labDoc.id, ...labDoc.data() };
   };
 
   const handleSubmit = async (e) => {
@@ -27,20 +30,40 @@ export const GateScreen = ({ onLoginSuccess }) => {
       if (isCreating) {
         if (labData) throw new Error("Lab name already taken.");
         if (!newAdminPass || !newMemberPass) throw new Error("Please fill in all passwords.");
+        const adminCredential = await createCredentialRecord(newAdminPass.trim());
+        const memberCredential = await createCredentialRecord(newMemberPass.trim());
         await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'labs'), {
-            name: labName.trim(), adminPin: newAdminPass, memberPin: newMemberPass, createdAt: serverTimestamp()
+            name: labName.trim(), adminCredential, memberCredential, createdAt: serverTimestamp()
         });
         await addAuditLog(labName.trim(), 'LAB_CREATE', `Lab Initialized`, 'System');
         onLoginSuccess({ role: 'ADMIN', labName: labName.trim() });
       } else {
         if (!labData) throw new Error("Lab not found.");
-        if (role === 'ADMIN') {
-            if (labData.adminPin === password) onLoginSuccess({ role: 'ADMIN', labName: labName.trim() });
-            else throw new Error("Invalid admin password.");
-        } else {
-            if (labData.memberPin === password) onLoginSuccess({ role: 'MEMBER', labName: labName.trim() });
-            else throw new Error("Invalid member password.");
+        const isAdminRole = role === 'ADMIN';
+        const credentialField = isAdminRole ? 'adminCredential' : 'memberCredential';
+        const legacyField = isAdminRole ? 'adminPin' : 'memberPin';
+        const enteredPassword = password.trim();
+        const credential = labData[credentialField];
+        let isValid = false;
+
+        if (credential) {
+          isValid = await verifyCredentialRecord(enteredPassword, credential);
+        } else if (typeof labData[legacyField] === 'string') {
+          isValid = labData[legacyField] === enteredPassword;
+          if (isValid) {
+            const upgradedCredential = await createCredentialRecord(enteredPassword);
+            await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'labs', labData.id), {
+              [credentialField]: upgradedCredential,
+              [legacyField]: deleteField()
+            });
+          }
         }
+
+        if (!isValid) {
+          throw new Error(isAdminRole ? "Invalid admin password." : "Invalid member password.");
+        }
+
+        onLoginSuccess({ role, labName: labName.trim() });
       }
     } catch (err) { setError(err.message); } finally { setLoading(false); }
   };
