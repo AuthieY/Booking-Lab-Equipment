@@ -15,13 +15,13 @@ const firebaseConfig = {
 
 const app = initializeApp(firebaseConfig);
 
-// 导出常用的实例
+// Export shared Firebase instances
 export const auth = getAuth(app);
 export const db = getFirestore(app);
 export const appId = "booking-lab"; 
 
 /**
- * 添加审计日志
+ * Add an audit log entry.
  */
 export const addAuditLog = async (labName, action, message, userName) => {
   try {

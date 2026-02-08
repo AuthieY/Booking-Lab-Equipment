@@ -1,10 +1,10 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { 
-  collection, query, where, onSnapshot, deleteDoc, doc, serverTimestamp, writeBatch, getDocs, addDoc 
+  collection, query, where, onSnapshot, deleteDoc, doc, serverTimestamp, writeBatch, getDocs, addDoc
 } from 'firebase/firestore';
 import { 
-  ShieldCheck, LogOut, ArrowRightLeft, LayoutGrid, ChevronRight, ChevronLeft, 
-  CalendarDays, MapPin, Wrench, StickyNote, Plus, ShieldAlert, User
+  ShieldCheck, LogOut, LayoutGrid, ChevronRight, ChevronLeft,
+  CalendarDays, MapPin, StickyNote, ShieldAlert
 } from 'lucide-react';
 import { auth, db, appId, addAuditLog } from '../../api/firebase';
 import { getFormattedDate, addDays, getMonday, getColorStyle } from '../../utils/helpers';
@@ -20,6 +20,7 @@ const MemberApp = ({ labName, userName, onLogout }) => {
   const [pinnedInstrumentIds, setPinnedInstrumentIds] = useState([]);
   const [hasHydratedPinned, setHasHydratedPinned] = useState(false);
   const [hasLoadedInstruments, setHasLoadedInstruments] = useState(false);
+  const [hasLoadedBookings, setHasLoadedBookings] = useState(false);
   const [showSelectionModal, setShowSelectionModal] = useState(false);
   const [showNoteModal, setShowNoteModal] = useState(false);
   const [instruments, setInstruments] = useState([]);
@@ -27,6 +28,17 @@ const MemberApp = ({ labName, userName, onLogout }) => {
   const [bookingToDelete, setBookingToDelete] = useState(null);
   const [bookingModal, setBookingModal] = useState({ isOpen: false, date: '', hour: 0, instrument: null });
   const [isBookingProcess, setIsBookingProcess] = useState(false);
+  const [slotDetails, setSlotDetails] = useState({
+    isOpen: false,
+    instrument: null,
+    dateStr: '',
+    hour: 0,
+    slots: [],
+    isBlocked: false,
+    blockLabel: '',
+    totalUsed: 0,
+    canBook: false
+  });
   
   const scrollTargetRef = useRef(null);
   const hours = useMemo(() => Array.from({ length: 24 }, (_, i) => i), []);
@@ -37,25 +49,82 @@ const MemberApp = ({ labName, userName, onLogout }) => {
   const formatHour = (hour) => `${String(hour).padStart(2, '0')}:00`;
   const getSlotKey = (dateStr, hour) => `${dateStr}|${hour}`;
   const getInstSlotKey = (instrumentId, dateStr, hour) => `${instrumentId}|${dateStr}|${hour}`;
-  const getHourBandClass = (hour) => (hour % 2 === 0 ? 'bg-white' : 'bg-slate-50/45');
+  const rowHeightClass = 'h-12 md:h-14';
+  const getHourBandClass = (hour) => (hour % 2 === 0 ? 'bg-white' : 'bg-slate-50/35');
   const isWorkingHour = (hour) => hour >= 9 && hour < 17;
-  const getTimeLabelClass = (hour) => `h-16 text-[10px] text-right pr-2 pt-2 border-b border-slate-200 font-semibold ${getHourBandClass(hour)} ${isToday && hour === currentHour ? 'bg-[#e6f7fc] text-[#00407a]' : isWorkingHour(hour) ? 'text-slate-500' : 'text-slate-400'}`;
+  const getTimeLabelClass = (hour) => `${rowHeightClass} text-[10px] text-right pr-2 pt-1.5 border-b border-slate-200/80 font-semibold font-data tabular-nums tracking-tight ${getHourBandClass(hour)} ${isToday && hour === currentHour ? 'bg-[#eef8fd] text-[#00407a]' : isWorkingHour(hour) ? 'text-slate-500' : 'text-slate-400'}`;
   const getSlotCellClass = ({ hour, isBlocked, isMine, totalUsed }) => (
-    `h-16 border-b border-slate-200 p-1 transition relative ${isBlocked ? 'bg-slate-200/70 cursor-not-allowed' : isMine ? 'bg-[#e6f7fc] border-l-4 border-[#1c7aa0] cursor-pointer' : totalUsed > 0 ? `${getHourBandClass(hour)} cursor-pointer` : `${getHourBandClass(hour)} hover:bg-slate-100 cursor-pointer`} ${isWorkingHour(hour) ? 'after:absolute after:inset-x-0 after:bottom-0 after:h-[1px] after:bg-emerald-200/50' : ''} ${isToday && hour === currentHour ? 'ring-2 ring-inset ring-[#52bdec]' : ''}`
+    `${rowHeightClass} border-b border-slate-200/80 px-1 py-0.5 transition-colors relative ${isBlocked ? 'bg-slate-200/45 cursor-not-allowed' : isMine ? 'bg-[#e6f3fb] border-l-2 border-[#1c7aa0] cursor-pointer' : totalUsed > 0 ? `${getHourBandClass(hour)} cursor-pointer` : `${getHourBandClass(hour)} hover:bg-slate-100/80 cursor-pointer`} ${isWorkingHour(hour) ? 'after:absolute after:inset-x-0 after:bottom-0 after:h-[1px] after:bg-emerald-200/45' : ''} ${isToday && hour === currentHour ? 'ring-1 ring-inset ring-[#52bdec]/70' : ''}`
   );
+  const sortSlotsForDisplay = (slots = []) => (
+    [...slots].sort((a, b) => {
+      const am = a.userName === userName ? 0 : 1;
+      const bm = b.userName === userName ? 0 : 1;
+      if (am !== bm) return am - bm;
+      return (a.userName || '').localeCompare(b.userName || '');
+    })
+  );
+  const getPrimarySlot = (slots = []) => sortSlotsForDisplay(slots)[0] || null;
+  const getOverflowCount = (slots = []) => Math.max(0, slots.length - 1);
+
+  const openSlotDetails = ({ instrument, dateStr, hour, slots, isBlocked, blockLabel, totalUsed }) => {
+    const orderedSlots = sortSlotsForDisplay(slots);
+    setSlotDetails({
+      isOpen: true,
+      instrument,
+      dateStr,
+      hour,
+      slots: orderedSlots,
+      isBlocked,
+      blockLabel: blockLabel || '',
+      totalUsed,
+      canBook: !isBlocked && totalUsed < (instrument?.maxCapacity || 1)
+    });
+  };
+
+  const closeSlotDetails = () => {
+    setSlotDetails((prev) => ({ ...prev, isOpen: false }));
+  };
 
   useEffect(() => {
-    const timer = setTimeout(() => { if (scrollTargetRef.current) scrollTargetRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' }); }, 300);
+    const hasOverviewSelection = !selectedInstrumentId && overviewInstrumentIds.length > 0;
+    const hasSingleSelection = Boolean(selectedInstrumentId);
+    if (!hasLoadedInstruments || !hasLoadedBookings) return;
+    if (!hasOverviewSelection && !hasSingleSelection) return;
+
+    const timer = setTimeout(() => {
+      if (scrollTargetRef.current) {
+        scrollTargetRef.current.scrollIntoView({ behavior: 'auto', block: 'start' });
+      }
+    }, 220);
     return () => clearTimeout(timer);
-  }, [selectedInstrumentId, viewMode]);
+  }, [selectedInstrumentId, viewMode, overviewInstrumentIds, hasLoadedInstruments, hasLoadedBookings]);
+
+  useEffect(() => {
+    const hasOverlayOpen = slotDetails.isOpen || Boolean(bookingToDelete);
+    if (!hasOverlayOpen) return;
+    const handleKeyDown = (event) => {
+      if (event.key !== 'Escape') return;
+      if (slotDetails.isOpen) {
+        setSlotDetails((prev) => (prev.isOpen ? { ...prev, isOpen: false } : prev));
+      }
+      if (bookingToDelete) setBookingToDelete(null);
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [slotDetails.isOpen, bookingToDelete]);
 
   useEffect(() => {
     setHasLoadedInstruments(false);
+    setHasLoadedBookings(false);
     const unsubInst = onSnapshot(query(collection(db, 'artifacts', appId, 'public', 'data', 'instruments'), where('labName', '==', labName)), (s) => {
       setInstruments(s.docs.map(d => ({ id: d.id, ...d.data() })));
       setHasLoadedInstruments(true);
     });
-    const unsubBook = onSnapshot(query(collection(db, 'artifacts', appId, 'public', 'data', 'bookings'), where('labName', '==', labName)), (s) => setBookings(s.docs.map(d => ({ id: d.id, ...d.data() }))));
+    const unsubBook = onSnapshot(query(collection(db, 'artifacts', appId, 'public', 'data', 'bookings'), where('labName', '==', labName)), (s) => {
+      setBookings(s.docs.map(d => ({ id: d.id, ...d.data() })));
+      setHasLoadedBookings(true);
+    });
     return () => { unsubInst(); unsubBook(); };
   }, [labName]);
 
@@ -161,8 +230,8 @@ const MemberApp = ({ labName, userName, onLogout }) => {
   };
 
   const getBlockingDetails = (blockingBookings = []) => {
-    const instrumentNames = [...new Set(blockingBookings.map((b) => b.instrumentName || 'Unknown Instrument'))].sort();
-    const userNames = [...new Set(blockingBookings.map((b) => b.userName || 'Unknown User'))].sort();
+    const instrumentNames = [...new Set(blockingBookings.map((b) => b.instrumentName || 'Unknown instrument'))].sort();
+    const userNames = [...new Set(blockingBookings.map((b) => b.userName || 'Unknown user'))].sort();
     const instrumentsText = instrumentNames.join(' & ');
     const usersText = userNames.join(' & ');
     return {
@@ -254,7 +323,7 @@ const MemberApp = ({ labName, userName, onLogout }) => {
       await batch.commit(); 
       await addAuditLog(labName, 'BOOKING', `Booked: ${instrument.name} (${requestedQty} qty)`, userName);
       setBookingModal({ ...bookingModal, isOpen: false });
-    } catch (e) { alert("Failed"); } finally { setIsBookingProcess(false); }
+    } catch (e) { alert("Booking failed. Please try again."); } finally { setIsBookingProcess(false); }
   };
   
   const handleDeleteBooking = async () => { 
@@ -272,7 +341,7 @@ const MemberApp = ({ labName, userName, onLogout }) => {
         await addAuditLog(labName, 'CANCEL', `Cancelled: ${bookingToDelete.instrumentName}`, userName);
       }
       setBookingToDelete(null); 
-    } catch (e) { alert("Failed to cancel"); }
+    } catch (e) { alert("Unable to cancel booking. Please try again."); }
   };
 
   const handleSaveNote = async (msg) => {
@@ -280,8 +349,8 @@ const MemberApp = ({ labName, userName, onLogout }) => {
     if (!inst) return;
     try {
         await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'notes'), { labName, instrumentId: inst.id, instrumentName: inst.name, userName, message: msg, timestamp: serverTimestamp() });
-        setShowNoteModal(false); alert("Note sent.");
-    } catch (e) { alert("Failed"); }
+        setShowNoteModal(false); alert("Report sent.");
+    } catch (e) { alert("Unable to send report. Please try again."); }
   };
 
   const weekDays = useMemo(() => { const m = getMonday(date); return Array.from({ length: 7 }, (_, i) => { const d = new Date(m); d.setDate(m.getDate() + i); return d; }); }, [date]);
@@ -298,11 +367,25 @@ const MemberApp = ({ labName, userName, onLogout }) => {
   }, [instruments, overviewInstrumentIds, pinnedInstrumentIds]);
   const currentInst = instruments.find(i => i.id === selectedInstrumentId);
   const overviewLabel = useMemo(() => {
+    if (!hasLoadedInstruments) return 'Loading...';
     if (currentInst) return currentInst.name;
-    if (overviewInstruments.length === 0) return 'Select Instruments';
+    if (overviewInstruments.length === 0) return 'Select instruments';
     if (overviewInstruments.length === instruments.length) return 'Overview';
     return `Overview (${overviewInstruments.length})`;
-  }, [currentInst, overviewInstruments.length, instruments.length]);
+  }, [currentInst, overviewInstruments.length, instruments.length, hasLoadedInstruments]);
+  const selectionSummaryLabel = useMemo(() => {
+    if (!hasLoadedInstruments) return 'Loading instruments...';
+    if (selectedInstrumentId && currentInst) return 'Single instrument calendar';
+    if (overviewInstruments.length === 0) return 'Choose instruments to display';
+    if (overviewInstruments.length === instruments.length) return 'All instruments in overview';
+    return `${overviewInstruments.length} instrument${overviewInstruments.length > 1 ? 's' : ''} selected`;
+  }, [selectedInstrumentId, currentInst, overviewInstruments.length, instruments.length, hasLoadedInstruments]);
+  const dateNavigationLabel = useMemo(() => {
+    if (viewMode === 'day' || !selectedInstrumentId) {
+      return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+    }
+    return `${weekDays[0].getMonth() + 1}/${weekDays[0].getDate()} - ${weekDays[6].getMonth() + 1}/${weekDays[6].getDate()}`;
+  }, [date, weekDays, viewMode, selectedInstrumentId]);
 
   const handleApplySelection = (ids) => {
     const nextIds = ids || [];
@@ -319,63 +402,179 @@ const MemberApp = ({ labName, userName, onLogout }) => {
     ));
   };
 
+  const isCalendarLoading = !hasLoadedInstruments || !hasLoadedBookings;
+  const skeletonColumns = selectedInstrumentId ? (viewMode === 'week' ? 7 : 1) : Math.max(overviewInstruments.length, 4);
+  const skeletonRows = 12;
+  const handleKeyboardActivation = (event, action) => {
+    if (event.key === 'Enter' || event.key === ' ') {
+      event.preventDefault();
+      action();
+    }
+  };
+  const getSlotAriaLabel = ({
+    instrumentName,
+    dateStr,
+    hour,
+    totalUsed,
+    maxCapacity,
+    isMine,
+    isBlocked,
+    blockLabel,
+    primarySlot,
+    overflowCount
+  }) => {
+    const timeLabel = `${formatHour(hour)} on ${dateStr}`;
+    if (isBlocked) {
+      return `${instrumentName}, ${timeLabel}. Blocked by conflict. ${blockLabel || 'Conflict detected.'}`;
+    }
+    if (isMine) {
+      return `${instrumentName}, ${timeLabel}. You have a booking. Activate to manage or cancel it.`;
+    }
+    if (totalUsed >= maxCapacity) {
+      return `${instrumentName}, ${timeLabel}. Fully booked, ${totalUsed} of ${maxCapacity} units used.`;
+    }
+    if (totalUsed > 0) {
+      const primaryText = primarySlot?.userName ? `Booked by ${primarySlot.userName}.` : '';
+      const overflowText = overflowCount > 0 ? `${overflowCount} more booking${overflowCount > 1 ? 's' : ''}.` : '';
+      return `${instrumentName}, ${timeLabel}. ${totalUsed} of ${maxCapacity} units used. ${primaryText} ${overflowText} Activate to book if capacity remains.`.trim();
+    }
+    return `${instrumentName}, ${timeLabel}. Available. Activate to book.`;
+  };
+
   return (
-    <div className="flex flex-col h-screen bg-slate-50 font-sans text-slate-900 overflow-hidden text-sm">
-      <div className="flex-none z-50 bg-white shadow-sm">
-          <header className="px-4 py-3 flex justify-between items-center border-b">
-            <div><h1 className="font-bold text-lg">{labName}</h1><div className="flex items-center gap-1 text-xs text-green-600 bg-green-50 px-2 py-0.5 rounded-full"><ShieldCheck className="w-3 h-3"/> {userName}</div></div>
-            <button onClick={onLogout} className="p-2 text-slate-400 bg-slate-100 rounded-full"><LogOut className="w-5 h-5"/></button>
+    <div className="flex flex-col h-screen ds-page font-sans text-slate-900 overflow-hidden text-sm">
+      <div className="flex-none z-50 bg-white/95 backdrop-blur border-b border-[var(--ds-border)] shadow-sm">
+          <header className="px-4 pt-3 pb-2 border-b border-slate-200/80">
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <div className="text-[10px] uppercase tracking-[0.12em] font-bold text-slate-400">Lab workspace</div>
+                <h1 className="font-black text-lg leading-tight text-[var(--ds-text-strong)] truncate">{labName}</h1>
+                <div className="mt-1 flex items-center gap-2 flex-wrap">
+                  <span className="ds-chip ds-chip-brand text-[11px]">
+                    <ShieldCheck className="w-3 h-3" /> {userName}
+                  </span>
+                  {selectedInstrumentId && currentInst && (
+                    <span className="ds-chip text-[11px] bg-slate-100 text-slate-600">
+                      Focused: {currentInst.name}
+                    </span>
+                  )}
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={onLogout}
+                aria-label="Log out"
+                className="p-2.5 text-slate-500 bg-slate-100 rounded-full ds-transition hover:bg-slate-200"
+              >
+                <LogOut className="w-5 h-5" />
+              </button>
+            </div>
           </header>
-          <div className="p-4 border-b">
-              <button onClick={() => setShowSelectionModal(true)} className="w-full p-3 rounded-xl bg-[#00407a] text-white flex justify-between shadow-md font-bold">
-                 <div className="flex items-center gap-3"><LayoutGrid className="w-4 h-4"/> <span>{overviewLabel}</span></div><ChevronRight className="w-5 h-5 opacity-40"/>
+          <div className="px-4 py-3 border-b border-slate-200/80 bg-slate-50/70">
+              <div className="text-[10px] uppercase tracking-[0.12em] font-bold text-slate-400 mb-1.5">View scope</div>
+              <button type="button" onClick={() => setShowSelectionModal(true)} aria-label="Open instrument selection" className="w-full p-3 ds-btn ds-btn-primary flex justify-between items-center">
+                 <div className="flex items-center gap-2.5 min-w-0">
+                   <span className="w-7 h-7 rounded-lg bg-white/20 border border-white/20 flex items-center justify-center shrink-0">
+                     <LayoutGrid className="w-4 h-4" />
+                   </span>
+                   <div className="min-w-0 text-left">
+                     <div className="font-bold leading-tight truncate">{overviewLabel}</div>
+                     <div className="text-[11px] font-medium text-blue-100/95 truncate">{selectionSummaryLabel}</div>
+                   </div>
+                 </div>
+                 <ChevronRight className="w-5 h-5 opacity-70 shrink-0" />
               </button>
           </div>
-          <div className="flex items-center justify-between px-4 py-2 border-b">
-             {selectedInstrumentId && (
+          <div className="flex items-center gap-2 px-4 py-2 border-b border-slate-200/80">
+             {selectedInstrumentId ? (
                <div className="flex bg-slate-100 rounded-lg p-1">
-                 <button onClick={()=>setViewMode('day')} className={`p-1.5 rounded-md ${viewMode==='day'?'bg-white shadow text-[#00407a]':'text-slate-400'}`}><LayoutGrid className="w-4 h-4"/></button>
-                 <button onClick={()=>setViewMode('week')} className={`p-1.5 rounded-md ${viewMode==='week'?'bg-white shadow text-[#00407a]':'text-slate-400'}`}><CalendarDays className="w-4 h-4"/></button>
+                 <button type="button" aria-label="Switch to day view" aria-pressed={viewMode === 'day'} onClick={()=>setViewMode('day')} className={`px-2.5 py-1.5 rounded-md text-xs font-bold ds-transition ${viewMode==='day'?'bg-white text-[#00407a]':'text-slate-500 hover:text-slate-700'}`}><LayoutGrid className="w-4 h-4"/></button>
+                 <button type="button" aria-label="Switch to week view" aria-pressed={viewMode === 'week'} onClick={()=>setViewMode('week')} className={`px-2.5 py-1.5 rounded-md text-xs font-bold ds-transition ${viewMode==='week'?'bg-white text-[#00407a]':'text-slate-500 hover:text-slate-700'}`}><CalendarDays className="w-4 h-4"/></button>
+               </div>
+             ) : (
+               <div className="px-2.5 py-1.5 rounded-lg bg-slate-100 text-[11px] font-bold uppercase tracking-wide text-slate-500">
+                 Overview
                </div>
              )}
-             <div className="flex items-center gap-4 flex-1 justify-end font-bold text-slate-600">
-                <button onClick={() => setDate(addDays(date, (viewMode === 'day' || !selectedInstrumentId) ? -1 : -7))}><ChevronLeft/></button>
-                <span>{(viewMode === 'day' || !selectedInstrumentId) ? date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : `${weekDays[0].getMonth()+1}/${weekDays[0].getDate()} - ${weekDays[6].getMonth()+1}/${weekDays[6].getDate()}`}</span>
-                <button onClick={() => setDate(addDays(date, (viewMode === 'day' || !selectedInstrumentId) ? 1 : 7))}><ChevronRight/></button>
+             <div className="ml-auto flex items-center gap-1.5 rounded-lg border border-slate-200 bg-slate-50 px-1.5 py-1">
+                <button type="button" aria-label={(viewMode === 'day' || !selectedInstrumentId) ? 'Go to previous day' : 'Go to previous week'} onClick={() => setDate(addDays(date, (viewMode === 'day' || !selectedInstrumentId) ? -1 : -7))} className="p-1 rounded-md text-slate-500 hover:text-slate-700 hover:bg-slate-200/70 ds-transition"><ChevronLeft/></button>
+                <span className="min-w-[7.5rem] text-center text-sm font-bold text-slate-700 font-data tabular-nums tracking-tight">
+                  {dateNavigationLabel}
+                </span>
+                <button type="button" aria-label={(viewMode === 'day' || !selectedInstrumentId) ? 'Go to next day' : 'Go to next week'} onClick={() => setDate(addDays(date, (viewMode === 'day' || !selectedInstrumentId) ? 1 : 7))} className="p-1 rounded-md text-slate-500 hover:text-slate-700 hover:bg-slate-200/70 ds-transition"><ChevronRight/></button>
              </div>
           </div>
           {selectedInstrumentId && currentInst && (
-             <div className="px-4 py-2 bg-slate-50 text-xs text-slate-500 flex items-center gap-2 border-b border-slate-200">
-                <MapPin className="w-3 h-3"/> {currentInst.location || 'No Location'}
-                {currentInst.isUnderMaintenance && <span className="bg-orange-100 text-orange-600 px-2 rounded font-bold uppercase">Maintenance</span>}
-                <button onClick={()=>setShowNoteModal(true)} className="ml-auto flex items-center gap-1 bg-yellow-100 text-yellow-700 px-2 py-0.5 rounded font-bold"><StickyNote className="w-3 h-3"/> Report Issue</button>
+             <div className="px-4 py-2 bg-slate-50/90 text-xs text-slate-500 flex items-center gap-2 border-b border-slate-200">
+                <span className="inline-flex items-center gap-1.5 min-w-0 text-slate-600">
+                  <MapPin className="w-3 h-3 shrink-0"/>
+                  <span className="truncate">{currentInst.location || 'No location'}</span>
+                </span>
+                {currentInst.isUnderMaintenance && <span className="ds-chip ds-chip-warning text-[10px]">Maintenance</span>}
+                <button type="button" onClick={()=>setShowNoteModal(true)} aria-label={`Report an issue for ${currentInst.name}`} className="ml-auto ds-btn ds-btn-warning px-2.5 py-1 text-[11px]"><StickyNote className="w-3 h-3"/> Report issue</button>
              </div>
           )}
       </div>
 
       <div className={`flex-1 relative ${selectedInstrumentId && viewMode === 'week' ? 'overflow-hidden' : 'overflow-y-auto'}`}>
+        {isCalendarLoading && (
+          <div className="border-y border-slate-200/80 bg-white animate-pulse" role="status" aria-live="polite" aria-label="Loading calendar">
+            <div className="h-9 md:h-10 border-b border-slate-200/80 bg-slate-100/80" />
+            <div className="flex min-w-max">
+              <div className="w-14 md:w-16 bg-slate-50 border-r border-slate-200/80">
+                {Array.from({ length: skeletonRows }, (_, rowIndex) => (
+                  <div key={`skeleton-time-${rowIndex}`} className={`${rowHeightClass} border-b border-slate-200/80 px-2 py-2`}>
+                    <div className="h-2.5 bg-slate-200 rounded w-8 ml-auto" />
+                  </div>
+                ))}
+              </div>
+              <div className="flex">
+                {Array.from({ length: skeletonColumns }, (_, colIndex) => (
+                  <div key={`skeleton-col-${colIndex}`} className="w-[5.5rem] md:w-24 border-r border-slate-200/80">
+                    <div className="h-9 md:h-10 border-b border-slate-200/80 bg-slate-100/70 px-2 py-2">
+                      <div className="h-2.5 bg-slate-200 rounded w-3/4 mx-auto" />
+                    </div>
+                    {Array.from({ length: skeletonRows }, (_, rowIndex) => (
+                      <div key={`skeleton-cell-${colIndex}-${rowIndex}`} className={`${rowHeightClass} border-b border-slate-200/80 px-1 py-1`}>
+                        <div className="h-3 bg-slate-100 rounded w-5/6 mx-auto" />
+                      </div>
+                    ))}
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* VIEW A: OVERVIEW (MATRIX VIEW) */}
-        {!selectedInstrumentId && overviewInstruments.length === 0 && (
+        {!isCalendarLoading && !selectedInstrumentId && overviewInstruments.length === 0 && (
            <div className="h-full flex items-center justify-center p-6">
-             <div className="w-full max-w-md bg-white border border-slate-200 rounded-3xl p-6 text-center shadow-sm">
-               <h3 className="text-lg font-black text-slate-800">Choose Instruments For Your View</h3>
-               <p className="text-sm text-slate-500 mt-2">
-                 Start by selecting the instruments you want to display.
+             <div className="w-full max-w-md ds-card p-6 text-center">
+               <h3 className="text-lg font-black text-[var(--ds-text-strong)]">
+                 {instruments.length === 0 ? 'No instruments available yet' : 'Choose instruments for your view'}
+               </h3>
+               <p className="text-sm text-[var(--ds-text-muted)] mt-2">
+                 {instruments.length === 0
+                   ? 'No instrument has been added yet. Ask an admin to create instruments first.'
+                   : 'Start by selecting the instruments you want to display.'}
                </p>
-               <button
-                 onClick={() => setShowSelectionModal(true)}
-                 className="mt-5 w-full py-3 rounded-xl bg-[#00407a] text-white font-bold"
-               >
-                 Select Instruments
-               </button>
+               {instruments.length > 0 && (
+                 <button
+                   type="button"
+                   onClick={() => setShowSelectionModal(true)}
+                   className="mt-5 w-full py-3 ds-btn ds-btn-primary"
+                 >
+                   Select instruments
+                 </button>
+               )}
              </div>
            </div>
         )}
 
-        {!selectedInstrumentId && overviewInstruments.length > 0 && (
-           <div className="flex min-w-max border-y border-slate-200">
-               <div className="w-16 bg-slate-50/95 backdrop-blur border-r sticky left-0 z-20 shadow-[2px_0_0_rgba(148,163,184,0.12)]">
-                 <div className="h-10 border-b bg-slate-100"></div>
+        {!isCalendarLoading && !selectedInstrumentId && overviewInstruments.length > 0 && (
+           <div className="flex min-w-max border-y border-slate-200/80 bg-white">
+               <div className="w-14 md:w-16 bg-slate-50/95 backdrop-blur border-r sticky left-0 z-20">
+                 <div className="h-9 md:h-10 border-b border-slate-200/80 bg-slate-100/90"></div>
                  {hours.map(h => (
                    <div
                      key={h}
@@ -388,32 +587,93 @@ const MemberApp = ({ labName, userName, onLogout }) => {
                </div>
                <div className="flex">
                  {overviewInstruments.map(inst => (
-                 <div key={inst.id} className="w-24 border-r border-slate-200">
-                   <div className={`h-10 flex items-center justify-center text-[10px] font-bold sticky top-0 z-10 border-b border-slate-200 shadow-sm px-1 text-center whitespace-normal leading-tight ${getColorStyle(inst.color).bg} ${getColorStyle(inst.color).text}`}>{inst.name}</div>
+                 <div key={inst.id} className="w-[5.5rem] md:w-24 border-r border-slate-200/80">
+                   <div className={`h-9 md:h-10 flex items-center justify-center text-[9px] md:text-[10px] font-bold sticky top-0 z-10 border-b border-slate-200/80 px-1 text-center whitespace-normal leading-tight ${getColorStyle(inst.color).bg} ${getColorStyle(inst.color).text}`}>{inst.name}</div>
                    {hours.map(h => {
                      const slots = bookingsByInstrumentSlot.get(getInstSlotKey(inst.id, selectedDateStr, h)) || [];
                      const totalUsed = slots.reduce((s, b) => s + (Number(b.requestedQuantity) || 1), 0);
                      const isMine = slots.some(s => s.userName === userName);
+                     const primarySlot = getPrimarySlot(slots);
+                     const overflowCount = getOverflowCount(slots);
                      const blockHint = blockingHintsByInstrumentForDate[inst.id]?.[h];
                      const isBlocked = Boolean(blockHint) && !isMine;
+                     const handleActivateSlot = () => {
+                       if (isMine) setBookingToDelete(slots.find(s => s.userName === userName));
+                       else if (isBlocked) return;
+                       else if (totalUsed >= (inst.maxCapacity || 1)) alert("This slot is fully booked.");
+                       else setBookingModal({ isOpen: true, date: selectedDateStr, hour: h, instrument: inst });
+                     };
+                     const slotAriaLabel = getSlotAriaLabel({
+                       instrumentName: inst.name,
+                       dateStr: selectedDateStr,
+                       hour: h,
+                       totalUsed,
+                       maxCapacity: inst.maxCapacity || 1,
+                       isMine,
+                       isBlocked,
+                       blockLabel: blockHint?.label,
+                       primarySlot,
+                       overflowCount
+                     });
                      return (
                        <div
                          key={h}
-                         onClick={() => {
-                           if (isMine) setBookingToDelete(slots.find(s => s.userName === userName));
-                           else if (isBlocked) return;
-                           else if (totalUsed >= (inst.maxCapacity || 1)) alert("Full");
-                           else setBookingModal({ isOpen: true, date: selectedDateStr, hour: h, instrument: inst });
-                         }}
+                         onClick={handleActivateSlot}
+                         onKeyDown={(event) => handleKeyboardActivation(event, handleActivateSlot)}
+                         role="button"
+                         tabIndex={0}
+                         aria-label={slotAriaLabel}
                          className={getSlotCellClass({ hour: h, isBlocked, isMine, totalUsed })}
                        >
                          {isBlocked && blockHint?.isStart && (
-                           <div className="text-[7px] leading-snug text-slate-500 bg-white/70 rounded px-1 py-0.5 mb-1 whitespace-normal break-words">
-                             {blockHint.label}
+                           <button
+                             type="button"
+                             title={blockHint.label}
+                             aria-label={`View conflict details for ${inst.name} at ${formatHour(h)}`}
+                             onClick={(e) => {
+                               e.stopPropagation();
+                               openSlotDetails({
+                                 instrument: inst,
+                                 dateStr: selectedDateStr,
+                                 hour: h,
+                                 slots,
+                                 isBlocked,
+                                 blockLabel: blockHint.label,
+                                 totalUsed
+                               });
+                             }}
+                             className="text-[7px] leading-snug text-slate-500 bg-white/70 rounded px-1 py-0.5 mb-1 font-semibold"
+                           >
+                             Conflict
+                           </button>
+                         )}
+                         {primarySlot && (
+                           <div className={`text-[8px] mb-0.5 px-1 py-0.5 rounded truncate font-medium ${primarySlot.userName === userName ? 'bg-[#0f6f9f] text-white' : 'bg-slate-200/85 text-slate-600'}`}>
+                             {primarySlot.userName}
                            </div>
                          )}
-                         {slots.map((s, idx) => (<div key={idx} className={`text-[9px] mb-0.5 px-1 rounded truncate ${s.userName === userName ? 'bg-[#00407a] text-white' : 'bg-slate-200 text-slate-600'}`}>{s.userName}</div>))}
-                         {totalUsed > 0 && <div className="text-[8px] text-slate-300 mt-auto">{totalUsed}/{inst.maxCapacity || 1}</div>}
+                         {overflowCount > 0 && (
+                           <button
+                             type="button"
+                             aria-label={`View all bookings for ${inst.name} at ${formatHour(h)}`}
+                             onClick={(e) => {
+                               e.stopPropagation();
+                               openSlotDetails({
+                                 instrument: inst,
+                                 dateStr: selectedDateStr,
+                                 hour: h,
+                                 slots,
+                                 isBlocked,
+                                 blockLabel: blockHint?.label || '',
+                                 totalUsed
+                               });
+                             }}
+                             className="text-[7px] px-1 py-0.5 rounded bg-slate-100 text-slate-500 font-semibold"
+                           >
+                             +{overflowCount} more
+                           </button>
+                         )}
+                         {totalUsed > 0 && <div className="text-[7px] text-slate-300 mt-auto font-data tabular-nums">{totalUsed}/{inst.maxCapacity || 1}</div>}
                        </div>
                      );
                    })}
@@ -424,13 +684,13 @@ const MemberApp = ({ labName, userName, onLogout }) => {
         )}
         
         {/* VIEW B: SINGLE DAY VIEW */}
-        {selectedInstrumentId && viewMode === 'day' && (
-            <div className="border-y border-slate-200">
-              <div className="h-8 border-b border-slate-200 text-[10px] font-bold flex items-center px-4 bg-[#e6f3fb] text-[#00407a]">
+        {!isCalendarLoading && selectedInstrumentId && viewMode === 'day' && (
+            <div className="border-y border-slate-200/80 bg-white">
+              <div className="h-7 md:h-8 border-b border-slate-200/80 text-[9px] md:text-[10px] font-bold flex items-center px-4 bg-[#e6f3fb] text-[#00407a]">
                 {currentInst?.name}
               </div>
               <div className="flex min-w-max">
-                <div className="w-16 bg-slate-50/95 backdrop-blur border-r sticky left-0 z-20 shadow-[2px_0_0_rgba(148,163,184,0.12)]">
+                <div className="w-14 md:w-16 bg-slate-50/95 backdrop-blur border-r sticky left-0 z-20">
                   {hours.map(h => (
                     <div key={h} ref={h === 8 ? scrollTargetRef : null} className={getTimeLabelClass(h)}>
                       <span className={`${isWorkingHour(h) ? 'font-bold' : ''}`}>{h}:00</span>
@@ -442,18 +702,86 @@ const MemberApp = ({ labName, userName, onLogout }) => {
                 const slots = bookingsByInstrumentSlot.get(getInstSlotKey(selectedInstrumentId, selectedDateStr, h)) || [];
                 const totalUsed = slots.reduce((s, b) => s + (Number(b.requestedQuantity) || 1), 0);
                 const isMine = slots.some(s => s.userName === userName);
+                const primarySlot = getPrimarySlot(slots);
+                const overflowCount = getOverflowCount(slots);
                 const blockHint = blockingHintsByInstrumentForDate[selectedInstrumentId]?.[h];
                 const isBlocked = Boolean(blockHint) && !isMine;
+                const handleActivateSlot = () => {
+                  if (isMine) setBookingToDelete(slots.find(s=>s.userName===userName));
+                  else if (isBlocked) return;
+                  else if (totalUsed >= (currentInst.maxCapacity || 1)) alert("This slot is fully booked.");
+                  else setBookingModal({ isOpen: true, date: selectedDateStr, hour:h, instrument: currentInst });
+                };
+                const slotAriaLabel = getSlotAriaLabel({
+                  instrumentName: currentInst?.name || 'Instrument',
+                  dateStr: selectedDateStr,
+                  hour: h,
+                  totalUsed,
+                  maxCapacity: currentInst?.maxCapacity || 1,
+                  isMine,
+                  isBlocked,
+                  blockLabel: blockHint?.label,
+                  primarySlot,
+                  overflowCount
+                });
                 return (
                   <div key={h} ref={h === 8 ? scrollTargetRef : null}
-                    onClick={() => { if (isMine) setBookingToDelete(slots.find(s=>s.userName===userName)); else if (isBlocked) return; else if (totalUsed >= (currentInst.maxCapacity || 1)) alert("Full"); else setBookingModal({ isOpen: true, date: selectedDateStr, hour:h, instrument: currentInst }); }} 
+                    onClick={handleActivateSlot}
+                    onKeyDown={(event) => handleKeyboardActivation(event, handleActivateSlot)}
+                    role="button"
+                    tabIndex={0}
+                    aria-label={slotAriaLabel}
                     className={getSlotCellClass({ hour: h, isBlocked, isMine, totalUsed })}
                   >
-                    {isBlocked && blockHint?.isStart && <div className="text-[7px] leading-snug text-slate-500 bg-white/70 rounded px-1 py-0.5 mb-1 whitespace-normal break-words">{blockHint.label}</div>}
-                    {slots.length > 0 ? slots.map((s, i) => (
-                      <div key={i} className={`text-[9px] mb-0.5 px-1 rounded truncate ${s.userName === userName ? 'bg-[#00407a] text-white' : 'bg-slate-200 text-slate-600'}`}>{s.userName} ({s.requestedQuantity})</div>
-                    )) : <div className="text-[9px] text-slate-300 mt-0.5">Available</div>}
-                    {totalUsed > 0 && <div className="text-[8px] text-slate-300 mt-auto">{totalUsed}/{currentInst.maxCapacity || 1}</div>}
+                    {isBlocked && blockHint?.isStart && (
+                      <button
+                        type="button"
+                        title={blockHint.label}
+                        aria-label={`View conflict details for ${currentInst?.name || 'instrument'} at ${formatHour(h)}`}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          openSlotDetails({
+                            instrument: currentInst,
+                            dateStr: selectedDateStr,
+                            hour: h,
+                            slots,
+                            isBlocked,
+                            blockLabel: blockHint.label,
+                            totalUsed
+                          });
+                        }}
+                        className="text-[7px] leading-snug text-slate-500 bg-white/70 rounded px-1 py-0.5 mb-1 font-semibold"
+                      >
+                        Conflict
+                      </button>
+                    )}
+                    {primarySlot ? (
+                      <>
+                        <div className={`text-[8px] mb-0.5 px-1 py-0.5 rounded truncate font-medium ${primarySlot.userName === userName ? 'bg-[#0f6f9f] text-white' : 'bg-slate-200/85 text-slate-600'}`}>{primarySlot.userName} ({primarySlot.requestedQuantity})</div>
+                        {overflowCount > 0 && (
+                          <button
+                            type="button"
+                            aria-label={`View all bookings for ${currentInst?.name || 'instrument'} at ${formatHour(h)}`}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              openSlotDetails({
+                                instrument: currentInst,
+                                dateStr: selectedDateStr,
+                                hour: h,
+                                slots,
+                                isBlocked,
+                                blockLabel: blockHint?.label || '',
+                                totalUsed
+                              });
+                            }}
+                            className="text-[7px] px-1 py-0.5 rounded bg-slate-100 text-slate-500 font-semibold"
+                          >
+                            +{overflowCount} more
+                          </button>
+                        )}
+                      </>
+                    ) : <div className="text-[9px] text-slate-300 mt-0.5">Available</div>}
+                    {totalUsed > 0 && <div className="text-[7px] text-slate-300 mt-auto font-data tabular-nums">{totalUsed}/{currentInst.maxCapacity || 1}</div>}
                   </div>
                 );
               })}
@@ -463,22 +791,22 @@ const MemberApp = ({ labName, userName, onLogout }) => {
         )}
 
         {/* VIEW C: WEEKLY VIEW (RESTORED!) */}
-        {selectedInstrumentId && viewMode === 'week' && (
-          <div className="h-full overflow-auto border-y border-slate-200">
-            <div className="min-w-[50rem] min-h-full">
-              <div className="grid grid-cols-[4rem_repeat(7,6.5rem)] sticky top-0 z-40 shadow-sm">
-                <div className="h-12 border-r border-b border-slate-200 bg-[#e6f3fb]"></div>
+        {!isCalendarLoading && selectedInstrumentId && viewMode === 'week' && (
+          <div className="h-full overflow-auto border-y border-slate-200/80 bg-white">
+            <div className="min-w-[44rem] md:min-w-[48rem] min-h-full">
+              <div className="grid grid-cols-[3.5rem_repeat(7,5.75rem)] md:grid-cols-[4rem_repeat(7,6rem)] sticky top-0 z-40">
+                <div className="h-10 md:h-11 border-r border-b border-slate-200/80 bg-[#e6f3fb]"></div>
                 {weekDays.map((d, i) => (
-                  <div key={i} className="h-12 border-r border-b border-slate-200 flex flex-col items-center justify-center bg-[#e6f3fb]">
-                    <div className="text-[10px] text-[#1c7aa0] font-bold uppercase">{['Mon','Tue','Wed','Thu','Fri','Sat','Sun'][d.getDay()===0?6:d.getDay()-1]}</div>
-                    <div className="text-xs font-black text-[#00407a]">{d.getDate()}</div>
+                  <div key={i} className="h-10 md:h-11 border-r border-b border-slate-200/80 flex flex-col items-center justify-center bg-[#e6f3fb]">
+                    <div className="text-[9px] text-[#1c7aa0] font-bold uppercase">{['Mon','Tue','Wed','Thu','Fri','Sat','Sun'][d.getDay()===0?6:d.getDay()-1]}</div>
+                    <div className="text-[11px] md:text-xs font-black text-[#00407a] font-data tabular-nums">{d.getDate()}</div>
                   </div>
                 ))}
               </div>
               <div>
                 {hours.map(hour => {
                   return (
-                  <div key={hour} ref={hour === 8 ? scrollTargetRef : null} className="grid grid-cols-[4rem_repeat(7,6.5rem)]">
+                  <div key={hour} ref={hour === 8 ? scrollTargetRef : null} className="grid grid-cols-[3.5rem_repeat(7,5.75rem)] md:grid-cols-[4rem_repeat(7,6rem)]">
                     <div className={getTimeLabelClass(hour)}>
                       <span className={`${isWorkingHour(hour) ? 'font-bold' : ''}`}>{hour}:00</span>
                     </div>
@@ -486,6 +814,8 @@ const MemberApp = ({ labName, userName, onLogout }) => {
                       const dateStr = getFormattedDate(day); 
                       const slots = bookingsByInstrumentSlot.get(getInstSlotKey(currentInst.id, dateStr, hour)) || [];
                       const isMine = slots.some(s => s.userName === userName);
+                      const primarySlot = getPrimarySlot(slots);
+                      const overflowCount = getOverflowCount(slots);
                       const blockingBookings = getBlockingBookings(currentInst.id, dateStr, hour);
                       const blockingDetails = getBlockingDetails(blockingBookings);
                       const prevBlockingBookings = hour > 0 ? getBlockingBookings(currentInst.id, dateStr, hour - 1) : [];
@@ -493,11 +823,72 @@ const MemberApp = ({ labName, userName, onLogout }) => {
                       const totalUsed = slots.reduce((s, b) => s + (Number(b.requestedQuantity) || 1), 0);
                       const isBlocked = Boolean(blockingDetails.instrumentsText) && !isMine;
                       const isBlockStart = isBlocked && (hour === 0 || prevBlockingDetails.signature !== blockingDetails.signature);
+                      const handleActivateSlot = () => {
+                        if (isMine) setBookingToDelete(slots.find(s=>s.userName===userName));
+                        else if (isBlocked) return;
+                        else setBookingModal({isOpen:true, date:dateStr, hour, instrument: currentInst});
+                      };
+                      const slotAriaLabel = getSlotAriaLabel({
+                        instrumentName: currentInst?.name || 'Instrument',
+                        dateStr,
+                        hour,
+                        totalUsed,
+                        maxCapacity: currentInst?.maxCapacity || 1,
+                        isMine,
+                        isBlocked,
+                        blockLabel: blockingDetails.labelPrefix,
+                        primarySlot,
+                        overflowCount
+                      });
                       return (
-                        <div key={i} onClick={() => { if (isMine) setBookingToDelete(slots.find(s=>s.userName===userName)); else if (isBlocked) return; else setBookingModal({isOpen:true, date:dateStr, hour, instrument: currentInst}); }} 
+                        <div key={i} onClick={handleActivateSlot} onKeyDown={(event) => handleKeyboardActivation(event, handleActivateSlot)} role="button" tabIndex={0} aria-label={slotAriaLabel}
                              className={getSlotCellClass({ hour, isBlocked, isMine, totalUsed })}>
-                          {isBlocked && isBlockStart && <div className="text-[7px] leading-snug text-slate-500 bg-white/70 rounded px-1 py-0.5 mb-1 whitespace-normal break-words">{blockingDetails.labelPrefix}</div>}
-                          {slots.map((s, idx) => (<div key={idx} className={`text-[8px] truncate rounded-sm mb-0.5 font-bold ${s.userName === userName ? 'bg-[#00407a] text-white' : 'bg-slate-200 text-slate-600'}`}>{s.userName}</div>))}
+                          {isBlocked && isBlockStart && (
+                            <button
+                              type="button"
+                              title={blockingDetails.labelPrefix}
+                              aria-label={`View conflict details for ${currentInst?.name || 'instrument'} at ${formatHour(hour)} on ${dateStr}`}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                openSlotDetails({
+                                  instrument: currentInst,
+                                  dateStr,
+                                  hour,
+                                  slots,
+                                  isBlocked,
+                                  blockLabel: blockingDetails.labelPrefix,
+                                  totalUsed
+                                });
+                              }}
+                              className="text-[7px] leading-snug text-slate-500 bg-white/70 rounded px-1 py-0.5 mb-1 font-semibold"
+                            >
+                              Conflict
+                            </button>
+                          )}
+                          {primarySlot && (
+                            <div className={`text-[8px] truncate rounded-sm mb-0.5 px-1 py-0.5 font-medium ${primarySlot.userName === userName ? 'bg-[#0f6f9f] text-white' : 'bg-slate-200/85 text-slate-600'}`}>{primarySlot.userName}</div>
+                          )}
+                          {overflowCount > 0 && (
+                            <button
+                              type="button"
+                              aria-label={`View all bookings for ${currentInst?.name || 'instrument'} at ${formatHour(hour)} on ${dateStr}`}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                openSlotDetails({
+                                  instrument: currentInst,
+                                  dateStr,
+                                  hour,
+                                  slots,
+                                  isBlocked,
+                                  blockLabel: blockingDetails.labelPrefix,
+                                  totalUsed
+                                });
+                              }}
+                              className="text-[7px] px-1 py-0.5 rounded bg-slate-100 text-slate-500 font-semibold"
+                            >
+                              +{overflowCount} more
+                            </button>
+                          )}
                         </div>
                       );
                     })}
@@ -513,11 +904,67 @@ const MemberApp = ({ labName, userName, onLogout }) => {
         isOpen={showSelectionModal}
         onClose={() => setShowSelectionModal(false)}
         instruments={instruments}
+        isLoading={!hasLoadedInstruments}
         selectedOverviewIds={overviewInstrumentIds}
         pinnedInstrumentIds={pinnedInstrumentIds}
         onTogglePin={handleTogglePinnedInstrument}
         onApply={handleApplySelection}
       />
+      {slotDetails.isOpen && (
+        <div className="ds-overlay z-[90]" role="presentation">
+          <div className="ds-modal ds-modal-sm ds-section" role="dialog" aria-modal="true" aria-labelledby="slot-details-title">
+            <h3 id="slot-details-title" className="text-base font-bold text-slate-800">{slotDetails.instrument?.name || 'Slot details'}</h3>
+            <p className="text-xs text-slate-500 font-data tabular-nums mt-1">
+              {slotDetails.dateStr} at {formatHour(slotDetails.hour)}
+            </p>
+            {slotDetails.blockLabel && (
+              <div className="mt-3 text-[11px] text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-2 py-1.5">
+                {slotDetails.blockLabel}
+              </div>
+            )}
+            <div className="mt-3 space-y-2 max-h-52 overflow-y-auto">
+              {slotDetails.slots.length > 0 ? (
+                slotDetails.slots.map((slot, idx) => (
+                  <div key={`${slot.userName}-${idx}`} className="ds-card-muted px-2.5 py-2 flex items-center justify-between">
+                    <span className={`text-xs ${slot.userName === userName ? 'text-[#00407a] font-bold' : 'text-slate-700'}`}>
+                      {slot.userName}
+                    </span>
+                    <span className="text-[11px] text-slate-400 font-data tabular-nums">
+                      {Number(slot.requestedQuantity) || 1} unit
+                    </span>
+                  </div>
+                ))
+              ) : (
+                <div className="text-xs text-slate-400 bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-2">
+                  No direct bookings in this slot.
+                </div>
+              )}
+            </div>
+            <div className="mt-4 flex gap-2">
+              <button type="button" onClick={closeSlotDetails} className="flex-1 py-2.5 ds-btn ds-btn-secondary">
+                Close
+              </button>
+              {slotDetails.canBook && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    closeSlotDetails();
+                    setBookingModal({
+                      isOpen: true,
+                      date: slotDetails.dateStr,
+                      hour: slotDetails.hour,
+                      instrument: slotDetails.instrument
+                    });
+                  }}
+                  className="flex-1 py-2.5 ds-btn ds-btn-primary text-white"
+                >
+                  Book slot
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
       <BookingModal
         isOpen={bookingModal.isOpen}
         onClose={() => setBookingModal({ ...bookingModal, isOpen: false })}
@@ -543,14 +990,14 @@ const MemberApp = ({ labName, userName, onLogout }) => {
       <NoteModal isOpen={showNoteModal} onClose={()=>setShowNoteModal(false)} instrument={currentInst} userName={userName} onSave={handleSaveNote} />
       
       {bookingToDelete && (
-        <div className="fixed inset-0 bg-black/60 z-[60] flex items-center justify-center p-6 backdrop-blur-sm">
-          <div className="bg-white w-full max-w-xs rounded-3xl p-6 text-center shadow-2xl">
+        <div className="ds-overlay z-[60]" role="presentation">
+          <div className="ds-modal ds-modal-sm ds-section text-center" role="dialog" aria-modal="true" aria-labelledby="cancel-booking-title">
             <ShieldAlert className="w-12 h-12 text-red-500 mx-auto mb-4"/>
-            <h3 className="font-black mb-2 text-lg">Cancel Booking?</h3>
+            <h3 id="cancel-booking-title" className="font-black mb-2 text-lg">Cancel booking?</h3>
             {bookingToDelete.bookingGroupId && <p className="text-[10px] text-orange-500 font-bold bg-orange-50 p-2 rounded-lg mb-4">Batch booking detected. Cancelling all linked slots.</p>}
             <div className="flex gap-3 mt-4">
-              <button onClick={()=>setBookingToDelete(null)} className="flex-1 py-3 bg-slate-100 font-bold rounded-xl text-slate-600">Back</button>
-              <button onClick={handleDeleteBooking} className="flex-1 py-3 bg-red-500 text-white font-bold rounded-xl shadow-lg">Confirm</button>
+              <button type="button" onClick={()=>setBookingToDelete(null)} className="flex-1 py-3 ds-btn ds-btn-secondary">Keep booking</button>
+              <button type="button" onClick={handleDeleteBooking} className="flex-1 py-3 ds-btn bg-red-500 text-white">Cancel booking</button>
             </div>
           </div>
         </div>

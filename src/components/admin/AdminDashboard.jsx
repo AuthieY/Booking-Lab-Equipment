@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { 
-  collection, query, where, onSnapshot, addDoc, deleteDoc, updateDoc, doc, serverTimestamp 
+  collection, query, where, onSnapshot, addDoc, deleteDoc, updateDoc, doc, serverTimestamp
 } from 'firebase/firestore';
 import { 
   ShieldCheck, LogOut, Settings, Book, History, Plus, Pencil, Trash2, MapPin, Wrench, MessageSquare, ChevronDown, ChevronRight
@@ -18,18 +18,29 @@ const AdminDashboard = ({ labName, onLogout }) => {
   const [openedLogMonths, setOpenedLogMonths] = useState({});
   const [openedLogUsers, setOpenedLogUsers] = useState({});
   const [showAllUserLogs, setShowAllUserLogs] = useState({});
+  const [hasLoadedInstruments, setHasLoadedInstruments] = useState(false);
+  const [hasLoadedLogs, setHasLoadedLogs] = useState(false);
+  const [hasLoadedNotes, setHasLoadedNotes] = useState(false);
   const [activeTab, setActiveTab] = useState('INSTRUMENTS'); 
   const [showInstrumentModal, setShowInstrumentModal] = useState(false);
   const [editingInstrument, setEditingInstrument] = useState(null); 
-
+  
   useEffect(() => {
-    // 1. 监听仪器数据
+    setHasLoadedInstruments(false);
+    setHasLoadedLogs(false);
+    setHasLoadedNotes(false);
+
+    // 1) Instruments stream
     const qInst = query(collection(db, 'artifacts', appId, 'public', 'data', 'instruments'), where('labName', '==', labName));
-    const unsubInst = onSnapshot(qInst, (snap) => setInstruments(snap.docs.map(d => ({ id: d.id, ...d.data() }))));
+    const unsubInst = onSnapshot(qInst, (snap) => {
+      setInstruments(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+      setHasLoadedInstruments(true);
+    });
     
-    // 2. 监听日志数据
+    // 2) Logs stream
     const qLogs = query(collection(db, 'artifacts', appId, 'public', 'data', 'logs'), where('labName', '==', labName));
     const unsubLogs = onSnapshot(qLogs, async (snap) => {
+      try {
         const cutoff = new Date();
         cutoff.setMonth(cutoff.getMonth() - 2);
         const oldDocs = snap.docs.filter((d) => {
@@ -47,37 +58,41 @@ const AdminDashboard = ({ labName, onLogout }) => {
           return tsDate && tsDate >= cutoff;
         });
         setLogs(recentOnly);
+      } finally {
+        setHasLoadedLogs(true);
+      }
     });
 
-    // 3. 监听笔记/报告数据
+    // 3) Notes / reports stream
     const qNotes = query(collection(db, 'artifacts', appId, 'public', 'data', 'notes'), where('labName', '==', labName));
     const unsubNotes = onSnapshot(qNotes, (snap) => {
         const data = snap.docs.map(d => ({ id: d.id, ...d.data() }));
         data.sort((a, b) => (b.timestamp?.seconds || 0) - (a.timestamp?.seconds || 0));
         setNotes(data);
+        setHasLoadedNotes(true);
     });
 
     return () => { unsubInst(); unsubLogs(); unsubNotes(); };
   }, [labName]);
 
-  // 处理仪器保存 (包含维护状态和冲突逻辑)
+  // Handle instrument save (includes maintenance and conflict settings).
   const handleSaveInstrument = async (data) => {
     if (editingInstrument) {
         const ref = doc(db, 'artifacts', appId, 'public', 'data', 'instruments', editingInstrument.id);
         await updateDoc(ref, { ...data });
-        await addAuditLog(labName, 'EDIT_INST', `Modified: ${data.name}${data.isUnderMaintenance ? ' (MAINTENANCE ON)' : ''}`, 'Admin');
+        await addAuditLog(labName, 'EDIT_INST', `Updated instrument: ${data.name}${data.isUnderMaintenance ? ' (MAINTENANCE ON)' : ''}`, 'Admin');
     } else {
         await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'instruments'), { labName, ...data, createdAt: serverTimestamp() });
-        await addAuditLog(labName, 'ADD_INST', `Added: ${data.name}`, 'Admin');
+        await addAuditLog(labName, 'ADD_INST', `Added instrument: ${data.name}`, 'Admin');
     }
     setShowInstrumentModal(false);
     setEditingInstrument(null);
   };
 
   const handleDeleteInstrument = async (id, name) => {
-    if(!confirm(`Delete ${name}?`)) return;
+    if(!confirm(`Delete instrument "${name}"?`)) return;
     await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'instruments', id));
-    await addAuditLog(labName, 'DEL_INST', `Deleted: ${name}`, 'Admin');
+    await addAuditLog(labName, 'DEL_INST', `Deleted instrument: ${name}`, 'Admin');
   };
 
   const handleDeleteNote = async (id) => {
@@ -155,30 +170,52 @@ const AdminDashboard = ({ labName, onLogout }) => {
   };
 
   return (
-    <div className="min-h-screen bg-slate-100 font-sans">
-        <header className="bg-slate-800 text-white px-6 py-4 flex justify-between items-center sticky top-0 z-50 shadow-md">
+    <div className="min-h-screen ds-page font-sans">
+        <header className="bg-slate-800 text-white px-4 md:px-6 py-3 md:py-4 flex justify-between items-center sticky top-0 z-50 shadow-sm">
             <div className="flex items-center gap-3">
               <div className="bg-slate-700 p-2 rounded-lg"><ShieldCheck className="w-6 h-6 text-yellow-400"/></div>
-              <div><h1 className="font-bold text-lg leading-tight">{labName}</h1><p className="text-xs text-slate-400">Admin Console</p></div>
+              <div><h1 className="font-bold text-lg leading-tight">{labName}</h1><p className="text-xs text-slate-400">Admin workspace</p></div>
             </div>
-            <button onClick={onLogout} className="text-slate-300 hover:text-white flex items-center gap-2 text-sm"><LogOut className="w-4 h-4"/> Logout</button>
+            <button type="button" aria-label="Sign out from admin workspace" onClick={onLogout} className="text-slate-300 hover:text-white flex items-center gap-2 text-sm"><LogOut className="w-4 h-4"/> Sign out</button>
         </header>
 
-        <div className="p-6 max-w-5xl mx-auto">
-            {/* Tab 导航 */}
-            <div className="flex gap-4 mb-6 overflow-x-auto no-scrollbar">
-                <button onClick={()=>setActiveTab('INSTRUMENTS')} className={`flex-1 min-w-[140px] p-4 rounded-2xl flex items-center justify-center gap-3 transition font-bold ${activeTab==='INSTRUMENTS'?'bg-white shadow-lg text-slate-800':'bg-slate-200 text-slate-500 hover:bg-slate-300'}`}><Settings className="w-5 h-5"/> Devices</button>
-                <button onClick={()=>setActiveTab('NOTEBOOK')} className={`flex-1 min-w-[140px] p-4 rounded-2xl flex items-center justify-center gap-3 transition font-bold ${activeTab==='NOTEBOOK'?'bg-white shadow-lg text-slate-800':'bg-slate-200 text-slate-500 hover:bg-slate-300'}`}><Book className="w-5 h-5"/> Notebook</button>
-                <button onClick={()=>setActiveTab('LOGS')} className={`flex-1 min-w-[140px] p-4 rounded-2xl flex items-center justify-center gap-3 transition font-bold ${activeTab==='LOGS'?'bg-white shadow-lg text-slate-800':'bg-slate-200 text-slate-500 hover:bg-slate-300'}`}><History className="w-5 h-5"/> Logs</button>
+        <div className="p-4 md:p-6 max-w-5xl mx-auto">
+            {/* Tab navigation */}
+            <div className="flex gap-3 mb-6 overflow-x-auto no-scrollbar" role="tablist" aria-label="Admin sections">
+                <button type="button" role="tab" aria-selected={activeTab==='INSTRUMENTS'} onClick={()=>setActiveTab('INSTRUMENTS')} className={`flex-1 min-w-[140px] p-4 ds-tab flex items-center justify-center gap-3 font-bold ${activeTab==='INSTRUMENTS'?'ds-tab-active':'ds-tab-inactive'}`}><Settings className="w-5 h-5"/> Instruments</button>
+                <button type="button" role="tab" aria-selected={activeTab==='NOTEBOOK'} onClick={()=>setActiveTab('NOTEBOOK')} className={`flex-1 min-w-[140px] p-4 ds-tab flex items-center justify-center gap-3 font-bold ${activeTab==='NOTEBOOK'?'ds-tab-active':'ds-tab-inactive'}`}><Book className="w-5 h-5"/> Notes</button>
+                <button type="button" role="tab" aria-selected={activeTab==='LOGS'} onClick={()=>setActiveTab('LOGS')} className={`flex-1 min-w-[140px] p-4 ds-tab flex items-center justify-center gap-3 font-bold ${activeTab==='LOGS'?'ds-tab-active':'ds-tab-inactive'}`}><History className="w-5 h-5"/> Logs</button>
             </div>
 
-            {/* 1. 仪器列表标签页 */}
+            {/* 1) Instruments tab */}
             {activeTab === 'INSTRUMENTS' && (
-                <div className="bg-white rounded-3xl p-6 shadow-sm">
-                    <div className="flex justify-between items-center mb-6"><h2 className="text-xl font-bold text-slate-800">Devices ({instruments.length})</h2><button onClick={()=>{setEditingInstrument(null); setShowInstrumentModal(true);}} className="bg-slate-900 text-white px-4 py-2 rounded-xl text-sm font-bold hover:bg-slate-700 flex items-center gap-2"><Plus className="w-4 h-4"/> Add</button></div>
+                <div className="ds-card p-6">
+                    <div className="flex justify-between items-center mb-6"><h2 className="text-xl font-bold text-slate-800">Instruments ({instruments.length})</h2><button type="button" onClick={()=>{setEditingInstrument(null); setShowInstrumentModal(true);}} className="ds-btn ds-btn-primary px-4 py-2 text-sm"><Plus className="w-4 h-4"/> Add instrument</button></div>
                     <div className="space-y-3">
-                      {instruments.map(inst => (
-                        <div key={inst.id} className="flex items-center justify-between p-4 border border-slate-100 rounded-xl hover:border-slate-300 transition bg-slate-50">
+                      {!hasLoadedInstruments && <div className="sr-only" role="status" aria-live="polite">Loading instruments</div>}
+                      {!hasLoadedInstruments && Array.from({ length: 4 }, (_, index) => (
+                        <div key={`inst-skeleton-${index}`} className="flex items-center justify-between p-4 ds-card-muted animate-pulse">
+                          <div className="flex items-center gap-4">
+                            <div className="w-12 h-12 rounded-lg bg-slate-200" />
+                            <div>
+                              <div className="h-4 w-36 bg-slate-200 rounded mb-2" />
+                              <div className="h-3 w-20 bg-slate-100 rounded" />
+                            </div>
+                          </div>
+                          <div className="flex gap-2">
+                            <div className="w-9 h-9 rounded-lg bg-slate-100" />
+                            <div className="w-9 h-9 rounded-lg bg-slate-100" />
+                          </div>
+                        </div>
+                      ))}
+                      {hasLoadedInstruments && instruments.length === 0 && (
+                        <div className="ds-card-muted p-6 text-center">
+                          <h3 className="text-slate-600 font-bold">No instruments yet</h3>
+                          <p className="text-slate-400 text-xs mt-1">Create your first instrument to start taking bookings.</p>
+                        </div>
+                      )}
+                      {hasLoadedInstruments && instruments.map(inst => (
+                        <div key={inst.id} className="flex items-center justify-between p-4 ds-card-muted hover:border-slate-300">
                           <div className="flex items-center gap-4">
                             <div className={`w-12 h-12 rounded-lg flex items-center justify-center ${getColorStyle(inst.color).bg} ${getColorStyle(inst.color).text} font-bold text-xl relative`}>
                               {inst.name[0]}
@@ -186,12 +223,12 @@ const AdminDashboard = ({ labName, onLogout }) => {
                             </div>
                             <div>
                               <div className="font-bold text-slate-800 flex items-center gap-2">{inst.name} {inst.isUnderMaintenance && <span className="text-[9px] bg-orange-100 text-orange-600 px-1.5 py-0.5 rounded font-black uppercase">Maint</span>}</div>
-                              <div className="text-xs text-slate-500 flex items-center gap-1"><MapPin className="w-3 h-3"/> {inst.location || 'No Location'}</div>
+                              <div className="text-xs text-slate-500 flex items-center gap-1"><MapPin className="w-3 h-3"/> {inst.location || 'No location'}</div>
                             </div>
                           </div>
                           <div className="flex gap-2">
-                              <button onClick={()=>{setEditingInstrument(inst); setShowInstrumentModal(true);}} className="p-2 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition"><Pencil className="w-5 h-5"/></button>
-                              <button onClick={()=>handleDeleteInstrument(inst.id, inst.name)} className="p-2 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition"><Trash2 className="w-5 h-5"/></button>
+                              <button type="button" aria-label={`Edit ${inst.name}`} onClick={()=>{setEditingInstrument(inst); setShowInstrumentModal(true);}} className="p-2 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition"><Pencil className="w-5 h-5"/></button>
+                              <button type="button" aria-label={`Delete ${inst.name}`} onClick={()=>handleDeleteInstrument(inst.id, inst.name)} className="p-2 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition"><Trash2 className="w-5 h-5"/></button>
                           </div>
                         </div>
                       ))}
@@ -199,17 +236,34 @@ const AdminDashboard = ({ labName, onLogout }) => {
                 </div>
             )}
 
-            {/* 2. 优化的笔记/报告标签页 (按仪器分类) */}
+            {/* 2) Notes tab (grouped by instrument) */}
             {activeTab === 'NOTEBOOK' && (
                 <div className="space-y-4">
-                    <div className="bg-white rounded-3xl p-4 shadow-sm mb-2">
-                      <h2 className="text-lg font-bold text-slate-800 flex items-center gap-2"><Book className="w-5 h-5 text-indigo-500"/> Latest Reports By Device</h2>
-                      <p className="text-xs text-slate-400 mt-1">Click a device to open its latest note, then use "See more" for older notes.</p>
+                    <div className="ds-card p-4 mb-2">
+                      <h2 className="text-lg font-bold text-slate-800 flex items-center gap-2"><Book className="w-5 h-5 text-indigo-500"/> Latest reports by instrument</h2>
+                      <p className="text-xs text-slate-400 mt-1">Click an instrument to open its latest note, then use "See more" for older notes.</p>
                     </div>
 
-                    {instruments.map(inst => {
+                    {(!hasLoadedInstruments || !hasLoadedNotes) && Array.from({ length: 3 }, (_, index) => (
+                      <div key={`note-skeleton-${index}`} className="ds-card p-4 rounded-2xl animate-pulse">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-3">
+                            <div className="w-8 h-8 rounded-lg bg-slate-200" />
+                            <div>
+                              <div className="h-4 w-44 bg-slate-200 rounded mb-2" />
+                              <div className="h-3 w-20 bg-slate-100 rounded" />
+                            </div>
+                          </div>
+                          <div className="h-3 w-10 bg-slate-100 rounded" />
+                        </div>
+                        <div className="mt-4 h-14 bg-slate-50 rounded-xl border border-slate-100" />
+                      </div>
+                    ))}
+                    {(!hasLoadedInstruments || !hasLoadedNotes) && <div className="sr-only" role="status" aria-live="polite">Loading notes</div>}
+
+                    {hasLoadedInstruments && hasLoadedNotes && instruments.map(inst => {
                         const instrumentNotes = notes.filter(n => n.instrumentId === inst.id);
-                        if (instrumentNotes.length === 0) return null; // 如果该仪器没留言，不显示该分类
+                        if (instrumentNotes.length === 0) return null;
                         const isOpen = Boolean(openedInstrumentNotes[inst.id]);
                         const isExpanded = Boolean(expandedNotesByInstrument[inst.id]);
                         const visibleNotes = isExpanded ? instrumentNotes : [instrumentNotes[0]];
@@ -217,8 +271,8 @@ const AdminDashboard = ({ labName, onLogout }) => {
 
                         const styles = getColorStyle(inst.color);
                         return (
-                            <div key={inst.id} className="bg-white rounded-2xl p-4 shadow-sm border-l-4" style={{ borderLeftColor: styles.accent || '#3b82f6' }}>
-                                <button onClick={() => toggleInstrumentPanel(inst.id)} className="w-full flex items-center justify-between gap-3 text-left">
+                            <div key={inst.id} className="ds-card p-4 border-l-4 rounded-2xl" style={{ borderLeftColor: styles.accent || '#3b82f6' }}>
+                                <button type="button" aria-expanded={isOpen} aria-label={`${isOpen ? 'Collapse' : 'Expand'} notes for ${inst.name}`} onClick={() => toggleInstrumentPanel(inst.id)} className="w-full flex items-center justify-between gap-3 text-left">
                                   <div className="flex items-center gap-3">
                                     <div className={`p-1.5 rounded-lg ${styles.bg} ${styles.text}`}><MessageSquare className="w-4 h-4"/></div>
                                     <div>
@@ -235,15 +289,15 @@ const AdminDashboard = ({ labName, onLogout }) => {
                                             <div className="flex justify-between items-start mb-1.5">
                                                 <div className="flex items-center gap-2">
                                                     <span className="font-bold text-xs text-slate-700">{note.userName}</span>
-                                                    <span className="text-[10px] bg-white px-2 py-0.5 rounded-full border border-slate-200 text-slate-400">{formatTime(note.timestamp)}</span>
+                                                    <span className="text-[10px] bg-white px-2 py-0.5 rounded-full border border-slate-200 text-slate-400 font-data tabular-nums">{formatTime(note.timestamp)}</span>
                                                 </div>
-                                                <button onClick={() => handleDeleteNote(note.id)} className="text-slate-300 hover:text-red-500 transition opacity-0 group-hover:opacity-100"><Trash2 className="w-4 h-4"/></button>
+                                                <button type="button" aria-label={`Delete note by ${note.userName}`} onClick={() => handleDeleteNote(note.id)} className="text-slate-300 hover:text-red-500 transition opacity-0 group-hover:opacity-100"><Trash2 className="w-4 h-4"/></button>
                                             </div>
                                             <p className="text-slate-600 text-xs leading-relaxed whitespace-pre-wrap">{note.message}</p>
                                         </div>
                                     ))}
                                     {instrumentNotes.length > 1 && (
-                                      <button onClick={() => toggleInstrumentNotes(inst.id)} className="text-xs font-bold text-blue-600 hover:text-blue-700">
+                                      <button type="button" aria-expanded={isExpanded} onClick={() => toggleInstrumentNotes(inst.id)} className="text-xs font-bold text-blue-600 hover:text-blue-700">
                                         {isExpanded ? 'Show less' : `See ${hiddenCount} more`}
                                       </button>
                                     )}
@@ -253,8 +307,8 @@ const AdminDashboard = ({ labName, onLogout }) => {
                         );
                     })}
 
-                    {notes.length === 0 && (
-                        <div className="bg-white rounded-3xl p-12 text-center shadow-sm">
+                    {hasLoadedInstruments && hasLoadedNotes && notes.length === 0 && (
+                        <div className="ds-card p-6 text-center">
                             <div className="bg-slate-100 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4"><Book className="w-8 h-8 text-slate-300"/></div>
                             <h3 className="text-slate-500 font-bold">No reports yet</h3>
                             <p className="text-slate-400 text-xs mt-1">All instruments are running smoothly.</p>
@@ -263,13 +317,26 @@ const AdminDashboard = ({ labName, onLogout }) => {
                 </div>
             )}
 
-            {/* 3. 系统日志标签页 */}
+            {/* 3) Logs tab */}
             {activeTab === 'LOGS' && (
-                <div className="bg-white rounded-3xl p-6 shadow-sm">
-                  <h2 className="text-xl font-bold text-slate-800 mb-2">System Logs</h2>
+                <div className="ds-card p-6">
+                  <h2 className="text-xl font-bold text-slate-800 mb-2">System logs</h2>
                   <p className="text-xs text-slate-400 mb-5">Only the most recent 2 months are kept.</p>
                   <div className="space-y-3">
-                    {logsByMonth.map((group) => {
+                    {!hasLoadedLogs && <div className="sr-only" role="status" aria-live="polite">Loading logs</div>}
+                    {!hasLoadedLogs && Array.from({ length: 2 }, (_, index) => (
+                      <div key={`log-skeleton-${index}`} className="border border-slate-100 rounded-xl overflow-hidden animate-pulse">
+                        <div className="w-full flex items-center justify-between px-4 py-3 bg-slate-50">
+                          <div className="h-4 w-24 bg-slate-200 rounded" />
+                          <div className="h-3 w-16 bg-slate-100 rounded" />
+                        </div>
+                        <div className="p-3 space-y-2 bg-white">
+                          <div className="h-10 rounded-lg bg-slate-50 border border-slate-100" />
+                          <div className="h-10 rounded-lg bg-slate-50 border border-slate-100" />
+                        </div>
+                      </div>
+                    ))}
+                    {hasLoadedLogs && logsByMonth.map((group) => {
                       const isOpen = Boolean(openedLogMonths[group.key]);
                       const bookingLogs = group.logs.filter(isBookingActivityLog);
                       const logsByUser = bookingLogs.reduce((acc, log) => {
@@ -282,14 +349,16 @@ const AdminDashboard = ({ labName, onLogout }) => {
                       return (
                         <div key={group.key} className="border border-slate-100 rounded-xl overflow-hidden">
                           <button
+                            type="button"
+                            aria-expanded={isOpen}
                             onClick={() => toggleLogMonth(group.key)}
                             className="w-full flex items-center justify-between px-4 py-3 bg-slate-50 hover:bg-slate-100 transition"
                           >
                             <div className="flex items-center gap-2">
                               {isOpen ? <ChevronDown className="w-4 h-4 text-slate-500"/> : <ChevronRight className="w-4 h-4 text-slate-500"/>}
-                              <span className="font-bold text-slate-700">{group.label}</span>
+                              <span className="font-bold text-slate-700 font-data tabular-nums">{group.label}</span>
                             </div>
-                            <span className="text-xs text-slate-400">{users.length} people</span>
+                            <span className="text-xs text-slate-400 font-data tabular-nums">{users.length} people</span>
                           </button>
                           {isOpen && (
                             <div className="p-3 space-y-2 bg-white">
@@ -301,6 +370,8 @@ const AdminDashboard = ({ labName, onLogout }) => {
                                 return (
                                   <div key={openKey} className="border border-slate-100 rounded-lg overflow-hidden">
                                     <button
+                                      type="button"
+                                      aria-expanded={isUserOpen}
                                       onClick={() => toggleLogUser(group.key, userName)}
                                       className="w-full px-3 py-2 bg-slate-50 hover:bg-slate-100 transition flex items-center justify-between"
                                     >
@@ -308,13 +379,13 @@ const AdminDashboard = ({ labName, onLogout }) => {
                                         {isUserOpen ? <ChevronDown className="w-4 h-4 text-slate-500"/> : <ChevronRight className="w-4 h-4 text-slate-500"/>}
                                         <span className="font-bold text-slate-700">{userName}</span>
                                       </div>
-                                      <span className="text-[11px] text-slate-400">{userLogs.length} booking logs</span>
+                                      <span className="text-[11px] text-slate-400 font-data tabular-nums">{userLogs.length} booking logs</span>
                                     </button>
                                     {isUserOpen && (
                                       <div className="divide-y divide-slate-100">
                                         {visibleLogs.map((log) => (
                                           <div key={log.id} className="px-3 py-2 grid grid-cols-[100px_110px_1fr] gap-2 items-start text-xs hover:bg-slate-50">
-                                            <div className="text-slate-400 font-mono">{formatTime(log.timestamp)}</div>
+                                            <div className="text-slate-400 font-data tabular-nums">{formatTime(log.timestamp)}</div>
                                             <div>
                                               <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${log.action.includes('CANCEL') ? 'bg-red-100 text-red-600' : 'bg-blue-100 text-blue-600'}`}>
                                                 {log.action}
@@ -325,6 +396,8 @@ const AdminDashboard = ({ labName, onLogout }) => {
                                         ))}
                                         {userLogs.length > 10 && (
                                           <button
+                                            type="button"
+                                            aria-expanded={isShowAll}
                                             onClick={() => toggleShowAllLogsForUser(group.key, userName)}
                                             className="w-full text-left px-3 py-2 text-xs font-bold text-blue-600 hover:bg-blue-50 transition"
                                           >
@@ -346,7 +419,7 @@ const AdminDashboard = ({ labName, onLogout }) => {
                         </div>
                       );
                     })}
-                    {logsByMonth.length === 0 && (
+                    {hasLoadedLogs && logsByMonth.length === 0 && (
                       <div className="text-sm text-slate-400 bg-slate-50 border border-slate-100 rounded-xl p-6 text-center">No recent logs.</div>
                     )}
                   </div>
@@ -354,7 +427,7 @@ const AdminDashboard = ({ labName, onLogout }) => {
             )}
         </div>
         
-        {/* 核心弹窗：确保 props 完整传递 */}
+        {/* Dialog: keep props explicit for edit/create flows */}
         <InstrumentModal 
           isOpen={showInstrumentModal} 
           onClose={()=>setShowInstrumentModal(false)} 

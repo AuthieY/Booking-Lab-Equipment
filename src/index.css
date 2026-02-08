@@ -1,14 +1,290 @@
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap');
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
-/* 下面是一些基础设置，防止某些浏览器显示异常 */
+:root {
+  /* Brand */
+  --ds-brand-900: #00335f;
+  --ds-brand-700: #00407a;
+  --ds-brand-500: #1c7aa0;
+  --ds-brand-300: #52bdec;
+  --ds-brand-100: #e6f3fb;
+
+  /* Surface */
+  --ds-bg: #f3f6fb;
+  --ds-surface: #ffffff;
+  --ds-surface-muted: #f8fafc;
+  --ds-border: #d7e0ec;
+
+  /* Text */
+  --ds-text-strong: #1e293b;
+  --ds-text: #334155;
+  --ds-text-muted: #64748b;
+  --ds-text-soft: #94a3b8;
+
+  /* States */
+  --ds-success-bg: #ecfdf5;
+  --ds-success-text: #0f766e;
+  --ds-warning-bg: #fef9c3;
+  --ds-warning-text: #a16207;
+  --ds-danger-bg: #fee2e2;
+  --ds-danger-text: #b91c1c;
+
+  /* Shape */
+  --ds-radius-sm: 0.5rem;
+  --ds-radius-md: 0.75rem;
+  --ds-radius-lg: 1rem;
+  --ds-radius-xl: 1.5rem;
+
+  /* Spacing scale (4 / 8 / 12 / 16 / 24) */
+  --ds-space-1: 0.25rem;
+  --ds-space-2: 0.5rem;
+  --ds-space-3: 0.75rem;
+  --ds-space-4: 1rem;
+  --ds-space-5: 1.5rem;
+
+  /* Elevation */
+  --ds-shadow-sm: 0 1px 2px rgba(15, 23, 42, 0.08);
+  --ds-shadow-md: 0 6px 18px rgba(15, 23, 42, 0.1);
+
+  /* Motion */
+  --ds-motion-fast: 120ms ease;
+  --ds-motion-base: 180ms ease;
+}
+
+@layer base {
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+
+  button:focus-visible,
+  [role='button']:focus-visible,
+  input:focus-visible,
+  textarea:focus-visible,
+  select:focus-visible {
+    outline: 2px solid var(--ds-brand-500);
+    outline-offset: 2px;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+      scroll-behavior: auto !important;
+    }
+  }
+}
+
+/* Global baseline */
 body {
   margin: 0;
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
-    'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
-    sans-serif;
+  font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
-  background-color: #f8fafc; /* 给背景一点淡淡的灰色，不刺眼 */
+  background-color: var(--ds-bg);
+  color: var(--ds-text);
+}
+
+@layer components {
+  .ds-page {
+    background: var(--ds-bg);
+    color: var(--ds-text);
+  }
+
+  .ds-card {
+    background: var(--ds-surface);
+    border: 1px solid var(--ds-border);
+    border-radius: var(--ds-radius-xl);
+    box-shadow: var(--ds-shadow-sm);
+  }
+
+  .ds-card-muted {
+    background: var(--ds-surface-muted);
+    border: 1px solid var(--ds-border);
+    border-radius: var(--ds-radius-lg);
+  }
+
+  .ds-section {
+    padding: var(--ds-space-4);
+  }
+
+  .ds-section-lg {
+    padding: var(--ds-space-5);
+  }
+
+  .ds-stack-sm {
+    display: flex;
+    flex-direction: column;
+    gap: var(--ds-space-3);
+  }
+
+  .ds-stack-md {
+    display: flex;
+    flex-direction: column;
+    gap: var(--ds-space-4);
+  }
+
+  .ds-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 80;
+    background: rgba(15, 23, 42, 0.48);
+    backdrop-filter: blur(4px);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 1rem;
+  }
+
+  .ds-modal {
+    width: 100%;
+    background: var(--ds-surface);
+    border: 1px solid var(--ds-border);
+    border-radius: var(--ds-radius-xl);
+    box-shadow: var(--ds-shadow-md);
+  }
+
+  .ds-modal-sm {
+    max-width: 24rem;
+  }
+
+  .ds-modal-md {
+    max-width: 30rem;
+  }
+
+  .ds-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    border: 1px solid transparent;
+    border-radius: var(--ds-radius-lg);
+    font-weight: 700;
+    transition: background-color var(--ds-motion-fast), color var(--ds-motion-fast), border-color var(--ds-motion-fast), box-shadow var(--ds-motion-base), opacity var(--ds-motion-fast);
+  }
+
+  .ds-btn:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+  }
+
+  .ds-btn-primary {
+    background: var(--ds-brand-700);
+    color: #ffffff;
+    box-shadow: var(--ds-shadow-sm);
+  }
+
+  .ds-btn-primary:hover {
+    background: var(--ds-brand-900);
+  }
+
+  .ds-btn-secondary {
+    background: var(--ds-surface);
+    color: var(--ds-text);
+    border-color: var(--ds-border);
+  }
+
+  .ds-btn-secondary:hover {
+    background: var(--ds-surface-muted);
+  }
+
+  .ds-btn-warning {
+    background: var(--ds-warning-bg);
+    color: var(--ds-warning-text);
+    border-color: #fef08a;
+  }
+
+  .ds-tab {
+    border: 1px solid transparent;
+    border-radius: var(--ds-radius-lg);
+    transition: background-color var(--ds-motion-fast), color var(--ds-motion-fast), border-color var(--ds-motion-fast), box-shadow var(--ds-motion-base);
+  }
+
+  .ds-tab-active {
+    background: var(--ds-surface);
+    color: var(--ds-text-strong);
+    border-color: var(--ds-border);
+    box-shadow: var(--ds-shadow-sm);
+  }
+
+  .ds-tab-inactive {
+    background: #e2e8f0;
+    color: var(--ds-text-muted);
+  }
+
+  .ds-tab-inactive:hover {
+    background: #d9e1eb;
+  }
+
+  .ds-input {
+    width: 100%;
+    background: var(--ds-surface-muted);
+    border: 1px solid var(--ds-border);
+    border-radius: var(--ds-radius-md);
+    color: var(--ds-text);
+    transition: border-color var(--ds-motion-fast), box-shadow var(--ds-motion-fast), background-color var(--ds-motion-fast);
+  }
+
+  .ds-input:focus,
+  .ds-input:focus-within {
+    outline: none;
+    border-color: var(--ds-brand-300);
+    box-shadow: 0 0 0 3px rgba(82, 189, 236, 0.22);
+    background: var(--ds-surface);
+  }
+
+  .ds-field-label {
+    font-size: 0.625rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--ds-text-soft);
+  }
+
+  .ds-chip {
+    display: inline-flex;
+    align-items: center;
+    border-radius: 999px;
+    padding: 0.125rem 0.5rem;
+    font-size: 0.625rem;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+  }
+
+  .ds-chip-brand {
+    background: var(--ds-brand-100);
+    color: var(--ds-brand-700);
+  }
+
+  .ds-chip-warning {
+    background: var(--ds-warning-bg);
+    color: var(--ds-warning-text);
+  }
+
+  .ds-chip-danger {
+    background: var(--ds-danger-bg);
+    color: var(--ds-danger-text);
+  }
+}
+
+@layer utilities {
+  .ds-transition {
+    transition: background-color var(--ds-motion-fast), color var(--ds-motion-fast), border-color var(--ds-motion-fast), box-shadow var(--ds-motion-base), opacity var(--ds-motion-fast);
+  }
+
+  .no-scrollbar {
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+  }
+
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
 }
