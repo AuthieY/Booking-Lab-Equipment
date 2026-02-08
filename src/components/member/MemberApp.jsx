@@ -362,9 +362,6 @@ const MemberApp = ({ labName, userName, onLogout }) => {
                <p className="text-sm text-slate-500 mt-2">
                  Start by selecting the instruments you want to display.
                </p>
-               <p className="text-xs text-slate-400 mt-1">
-                 Select 1 instrument to open its individual view, or select multiple for overview.
-               </p>
                <button
                  onClick={() => setShowSelectionModal(true)}
                  className="mt-5 w-full py-3 rounded-xl bg-[#00407a] text-white font-bold"
