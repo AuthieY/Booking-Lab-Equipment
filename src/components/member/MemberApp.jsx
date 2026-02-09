@@ -826,7 +826,7 @@ const MemberApp = ({ labName, userName, onLogout }) => {
   const selectionSummaryLabel = useMemo(() => {
     if (!hasLoadedInstruments) return 'Loading instruments...';
     if (selectedInstrumentId && currentInst) return 'Single instrument calendar';
-    if (overviewInstruments.length === 0) return 'Choose instruments to display';
+    if (overviewInstruments.length === 0) return 'Choose instruments to get started';
     if (overviewInstruments.length === instruments.length) return 'All instruments in overview';
     return `${overviewInstruments.length} instrument${overviewInstruments.length > 1 ? 's' : ''} selected`;
   }, [selectedInstrumentId, currentInst, overviewInstruments.length, instruments.length, hasLoadedInstruments]);
@@ -1041,14 +1041,11 @@ const MemberApp = ({ labName, userName, onLogout }) => {
         {!isCalendarLoading && !selectedInstrumentId && overviewInstruments.length === 0 && (
            <div className="h-full flex items-center justify-center p-6">
              <div className="w-full max-w-md ds-card p-6 text-center">
-               <h3 className="text-lg font-black text-[var(--ds-text-strong)]">
-                 {instruments.length === 0 ? 'No instruments available yet' : 'Choose instruments for your view'}
-               </h3>
                <p className="text-sm text-[var(--ds-text-muted)] mt-2">
                  {instruments.length === 0
                    ? 'No instrument has been added yet. Ask an admin to create instruments first.'
-                   : 'Start by selecting the instruments you want to display.'}
-               </p>
+                   : 'Choose instruments to get started'}
+                </p>
                {instruments.length > 0 && (
                  <button
                    type="button"
