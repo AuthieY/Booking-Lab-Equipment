@@ -1,6 +1,6 @@
-import React, { useState, useEffect, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { 
-  collection, query, where, onSnapshot, deleteDoc, doc, serverTimestamp, writeBatch, getDocs, addDoc
+  collection, query, where, onSnapshot, doc, serverTimestamp, getDocs, addDoc, runTransaction
 } from 'firebase/firestore';
 import { 
   ShieldCheck, LogOut, LayoutGrid, ChevronRight, ChevronLeft,
@@ -14,6 +14,25 @@ import InstrumentSelectionModal from '../modals/InstrumentSelectionModal';
 import ToastStack from '../common/ToastStack';
 import { useToast } from '../../hooks/useToast';
 import { buildBookingSlots, summarizeBlockingBookings, sortSlotsForDisplay, getPrimarySlot, getOverflowCount } from '../../utils/booking';
+import { applyDocChanges } from '../../utils/firestore';
+import { measurePerf, measurePerfAsync } from '../../utils/perf';
+
+const REPEAT_LOOKAHEAD_DAYS = 24;
+const BOOKING_QUERY_BUFFER_DAYS = 14;
+const BOOKING_QUERY_GUARD_DAYS = 7;
+const BOOKING_AGGREGATE_COLLECTION = 'booking_slot_aggregates';
+
+const buildAggregateDocId = (lab, instrumentId, dateStr, hour) => (
+  `${encodeURIComponent(lab)}__${instrumentId}__${dateStr}__${String(hour).padStart(2, '0')}`
+);
+
+const normalizeAggregateState = (raw, fallback = { usedQuantity: 0, bookingCount: 0 }) => {
+  if (!raw || typeof raw !== 'object') return fallback;
+  return {
+    usedQuantity: Math.max(0, Number(raw.usedQuantity) || 0),
+    bookingCount: Math.max(0, Number(raw.bookingCount) || 0)
+  };
+};
 
 const MemberApp = ({ labName, userName, onLogout }) => {
   const [viewMode, setViewMode] = useState('day');
@@ -57,16 +76,31 @@ const MemberApp = ({ labName, userName, onLogout }) => {
     () => instruments.find((instrument) => instrument.id === selectedInstrumentId),
     [instruments, selectedInstrumentId]
   );
-  const bookingQueryRange = useMemo(() => {
-    const visibleStart = selectedInstrumentId && viewMode === 'week'
+  const visibleRange = useMemo(() => {
+    const startDate = selectedInstrumentId && viewMode === 'week'
       ? getMonday(date)
       : new Date(date.getFullYear(), date.getMonth(), date.getDate());
-    const visibleEnd = selectedInstrumentId && viewMode === 'week' ? addDays(visibleStart, 6) : visibleStart;
+    const endDate = selectedInstrumentId && viewMode === 'week' ? addDays(startDate, 6) : startDate;
     return {
-      queryStart: getFormattedDate(addDays(visibleStart, -1)),
-      queryEnd: getFormattedDate(addDays(visibleEnd, 36))
+      startDate,
+      endDate,
+      startStr: getFormattedDate(startDate),
+      endStr: getFormattedDate(endDate)
     };
   }, [date, selectedInstrumentId, viewMode]);
+  const buildBookingQueryRange = useCallback((startDate, endDate) => {
+    const queryStartDate = addDays(startDate, -BOOKING_QUERY_BUFFER_DAYS);
+    const queryEndDate = addDays(endDate, REPEAT_LOOKAHEAD_DAYS + BOOKING_QUERY_BUFFER_DAYS);
+    return {
+      queryStart: getFormattedDate(queryStartDate),
+      queryEnd: getFormattedDate(queryEndDate),
+      guardStart: getFormattedDate(addDays(queryStartDate, BOOKING_QUERY_GUARD_DAYS)),
+      guardEnd: getFormattedDate(addDays(queryEndDate, -BOOKING_QUERY_GUARD_DAYS))
+    };
+  }, []);
+  const [bookingQueryRange, setBookingQueryRange] = useState(() =>
+    buildBookingQueryRange(visibleRange.startDate, visibleRange.endDate)
+  );
 
   const formatHour = (hour) => `${String(hour).padStart(2, '0')}:00`;
   const getSlotKey = (dateStr, hour) => `${dateStr}|${hour}`;
@@ -106,6 +140,33 @@ const MemberApp = ({ labName, userName, onLogout }) => {
   };
 
   useEffect(() => {
+    const requiredEnd = getFormattedDate(addDays(visibleRange.endDate, REPEAT_LOOKAHEAD_DAYS));
+    const shouldShiftQueryWindow =
+      visibleRange.startStr < bookingQueryRange.guardStart ||
+      requiredEnd > bookingQueryRange.guardEnd;
+
+    if (!shouldShiftQueryWindow) return;
+
+    const nextRange = buildBookingQueryRange(visibleRange.startDate, visibleRange.endDate);
+    if (
+      nextRange.queryStart === bookingQueryRange.queryStart &&
+      nextRange.queryEnd === bookingQueryRange.queryEnd
+    ) {
+      return;
+    }
+    setBookingQueryRange(nextRange);
+  }, [
+    visibleRange.startDate,
+    visibleRange.endDate,
+    visibleRange.startStr,
+    bookingQueryRange.guardStart,
+    bookingQueryRange.guardEnd,
+    bookingQueryRange.queryStart,
+    bookingQueryRange.queryEnd,
+    buildBookingQueryRange
+  ]);
+
+  useEffect(() => {
     const hasOverviewSelection = !selectedInstrumentId && overviewInstrumentIds.length > 0;
     const hasSingleSelection = Boolean(selectedInstrumentId);
     if (!hasLoadedInstruments || !hasLoadedBookings) return;
@@ -135,7 +196,7 @@ const MemberApp = ({ labName, userName, onLogout }) => {
 
   useEffect(() => {
     setHasLoadedInstruments(false);
-    setHasLoadedBookings(false);
+    setInstruments([]);
     const instrumentQuery = query(
       collection(db, 'artifacts', appId, 'public', 'data', 'instruments'),
       where('labName', '==', labName)
@@ -143,7 +204,11 @@ const MemberApp = ({ labName, userName, onLogout }) => {
     const unsubInst = onSnapshot(
       instrumentQuery,
       (snapshot) => {
-        setInstruments(snapshot.docs.map((d) => ({ id: d.id, ...d.data() })));
+        setInstruments((prev) => measurePerf(
+          'member.instruments.applyDocChanges',
+          () => applyDocChanges(prev, snapshot.docChanges()),
+          { changes: snapshot.docChanges().length }
+        ));
         setHasLoadedInstruments(true);
       },
       () => {
@@ -151,7 +216,12 @@ const MemberApp = ({ labName, userName, onLogout }) => {
         pushToast('Unable to load instruments right now.', 'error');
       }
     );
+    return () => { unsubInst(); };
+  }, [labName, pushToast]);
 
+  useEffect(() => {
+    setHasLoadedBookings(false);
+    setBookings([]);
     const bookingQuery = query(
       collection(db, 'artifacts', appId, 'public', 'data', 'bookings'),
       where('labName', '==', labName),
@@ -161,7 +231,11 @@ const MemberApp = ({ labName, userName, onLogout }) => {
     const unsubBook = onSnapshot(
       bookingQuery,
       (snapshot) => {
-        setBookings(snapshot.docs.map((d) => ({ id: d.id, ...d.data() })));
+        setBookings((prev) => measurePerf(
+          'member.bookings.applyDocChanges',
+          () => applyDocChanges(prev, snapshot.docChanges()),
+          { changes: snapshot.docChanges().length }
+        ));
         setHasLoadedBookings(true);
       },
       () => {
@@ -169,7 +243,7 @@ const MemberApp = ({ labName, userName, onLogout }) => {
         pushToast('Unable to load bookings right now.', 'error');
       }
     );
-    return () => { unsubInst(); unsubBook(); };
+    return () => { unsubBook(); };
   }, [labName, bookingQueryRange.queryEnd, bookingQueryRange.queryStart, pushToast]);
 
   useEffect(() => {
@@ -227,6 +301,34 @@ const MemberApp = ({ labName, userName, onLogout }) => {
     return map;
   }, [bookings]);
 
+  const instrumentNameById = useMemo(() => {
+    const map = {};
+    instruments.forEach((instrument) => {
+      map[instrument.id] = instrument.name;
+    });
+    return map;
+  }, [instruments]);
+
+  const getFallbackAggregateState = useCallback((instrumentId, dateStr, hour) => {
+    const slots = bookingsByInstrumentSlot.get(getInstSlotKey(instrumentId, dateStr, hour)) || [];
+    return {
+      usedQuantity: slots.reduce((sum, booking) => sum + (Number(booking.requestedQuantity) || 1), 0),
+      bookingCount: slots.length
+    };
+  }, [bookingsByInstrumentSlot]);
+
+  const getAggregateDocRef = useCallback((instrumentId, dateStr, hour) => (
+    doc(
+      db,
+      'artifacts',
+      appId,
+      'public',
+      'data',
+      BOOKING_AGGREGATE_COLLECTION,
+      buildAggregateDocId(labName, instrumentId, dateStr, hour)
+    )
+  ), [labName]);
+
   const conflictIdsByInstrument = useMemo(() => {
     const map = {};
     instruments.forEach((inst) => {
@@ -239,14 +341,14 @@ const MemberApp = ({ labName, userName, onLogout }) => {
     return map;
   }, [instruments]);
 
-  const getBlockingBookings = (instrumentId, dateStr, hour) => {
+  const getBlockingBookings = useCallback((instrumentId, dateStr, hour) => {
     const enemyIds = conflictIdsByInstrument[instrumentId];
     if (!enemyIds || enemyIds.size === 0) return [];
     const sameSlotBookings = bookingsBySlot.get(getSlotKey(dateStr, hour)) || [];
     return sameSlotBookings.filter((b) => enemyIds.has(b.instrumentId));
-  };
+  }, [conflictIdsByInstrument, bookingsBySlot]);
 
-  const findConflicts = ({ instrument, requestedQty, slots }) => {
+  const findConflicts = useCallback(({ instrument, requestedQty, slots }) => {
     const conflicts = [];
 
     slots.forEach((slot) => {
@@ -264,9 +366,12 @@ const MemberApp = ({ labName, userName, onLogout }) => {
     });
 
     return conflicts;
-  };
+  }, [bookingsByInstrumentSlot, getBlockingBookings]);
 
-  const getBlockingHintsForDate = (instrumentId, dateStr) => {
+  const getBlockingHintsForDate = useCallback((instrumentId, dateStr) => {
+    const enemyIds = conflictIdsByInstrument[instrumentId];
+    if (!enemyIds || enemyIds.size === 0) return {};
+
     const hints = {};
     let hour = 0;
 
@@ -296,15 +401,21 @@ const MemberApp = ({ labName, userName, onLogout }) => {
     }
 
     return hints;
-  };
+  }, [conflictIdsByInstrument, getBlockingBookings]);
+
+  const dayMetricInstrumentIds = useMemo(() => {
+    if (selectedInstrumentId) return viewMode === 'day' ? [selectedInstrumentId] : [];
+    if (overviewInstrumentIds.length === 0) return [];
+    return overviewInstrumentIds;
+  }, [selectedInstrumentId, viewMode, overviewInstrumentIds]);
 
   const blockingHintsByInstrumentForDate = useMemo(() => {
     const map = {};
-    instruments.forEach((inst) => {
-      map[inst.id] = getBlockingHintsForDate(inst.id, selectedDateStr);
+    dayMetricInstrumentIds.forEach((instrumentId) => {
+      map[instrumentId] = getBlockingHintsForDate(instrumentId, selectedDateStr);
     });
     return map;
-  }, [instruments, selectedDateStr, bookingsBySlot, conflictIdsByInstrument]);
+  }, [dayMetricInstrumentIds, selectedDateStr, getBlockingHintsForDate]);
   const weekDays = useMemo(() => {
     const monday = getMonday(date);
     return Array.from({ length: 7 }, (_, index) => {
@@ -315,24 +426,25 @@ const MemberApp = ({ labName, userName, onLogout }) => {
   }, [date]);
 
   const daySlotMetricsByInstrument = useMemo(() => {
+    if (dayMetricInstrumentIds.length === 0) return {};
     const map = {};
-    instruments.forEach((inst) => {
+    dayMetricInstrumentIds.forEach((instrumentId) => {
       const hourMap = {};
       for (let hour = 0; hour < 24; hour += 1) {
-        const slots = bookingsByInstrumentSlot.get(getInstSlotKey(inst.id, selectedDateStr, hour)) || [];
+        const slots = bookingsByInstrumentSlot.get(getInstSlotKey(instrumentId, selectedDateStr, hour)) || [];
         const totalUsed = slots.reduce((sum, booking) => sum + (Number(booking.requestedQuantity) || 1), 0);
         const isMine = slots.some((slot) => slot.userName === userName);
         const primarySlot = getPrimarySlot(slots, userName);
         const overflowCount = getOverflowCount(slots);
-        const blockHint = blockingHintsByInstrumentForDate[inst.id]?.[hour];
+        const blockHint = blockingHintsByInstrumentForDate[instrumentId]?.[hour];
         const isBlocked = Boolean(blockHint) && !isMine;
         const isPast = isSlotInPast(selectedDateStr);
         hourMap[hour] = { slots, totalUsed, isMine, primarySlot, overflowCount, blockHint, isBlocked, isPast };
       }
-      map[inst.id] = hourMap;
+      map[instrumentId] = hourMap;
     });
     return map;
-  }, [instruments, bookingsByInstrumentSlot, selectedDateStr, userName, blockingHintsByInstrumentForDate, currentWeekStartStr]);
+  }, [dayMetricInstrumentIds, bookingsByInstrumentSlot, selectedDateStr, userName, blockingHintsByInstrumentForDate, currentWeekStartStr]);
 
   const weeklySlotMetrics = useMemo(() => {
     if (!currentInst || viewMode !== 'week') return new Map();
@@ -340,18 +452,16 @@ const MemberApp = ({ labName, userName, onLogout }) => {
 
     weekDays.forEach((day) => {
       const dateStr = getFormattedDate(day);
+      const blockingHintsForDay = getBlockingHintsForDate(currentInst.id, dateStr);
       for (let hour = 0; hour < 24; hour += 1) {
         const slots = bookingsByInstrumentSlot.get(getInstSlotKey(currentInst.id, dateStr, hour)) || [];
         const totalUsed = slots.reduce((sum, booking) => sum + (Number(booking.requestedQuantity) || 1), 0);
         const isMine = slots.some((slot) => slot.userName === userName);
         const primarySlot = getPrimarySlot(slots, userName);
         const overflowCount = getOverflowCount(slots);
-        const blockingBookings = getBlockingBookings(currentInst.id, dateStr, hour);
-        const blockingDetails = summarizeBlockingBookings(blockingBookings);
-        const prevBlockingBookings = hour > 0 ? getBlockingBookings(currentInst.id, dateStr, hour - 1) : [];
-        const prevBlockingDetails = summarizeBlockingBookings(prevBlockingBookings);
-        const isBlocked = Boolean(blockingDetails.instrumentsText) && !isMine;
-        const isBlockStart = isBlocked && (hour === 0 || prevBlockingDetails.signature !== blockingDetails.signature);
+        const blockHint = blockingHintsForDay[hour];
+        const isBlocked = Boolean(blockHint) && !isMine;
+        const isBlockStart = isBlocked && Boolean(blockHint?.isStart);
         const isPast = isSlotInPast(dateStr);
 
         map.set(getSlotKey(dateStr, hour), {
@@ -361,7 +471,7 @@ const MemberApp = ({ labName, userName, onLogout }) => {
           isMine,
           primarySlot,
           overflowCount,
-          blockingDetails,
+          blockLabel: blockHint?.label || '',
           isBlocked,
           isBlockStart,
           isPast
@@ -370,18 +480,19 @@ const MemberApp = ({ labName, userName, onLogout }) => {
     });
 
     return map;
-  }, [currentInst, viewMode, weekDays, bookingsByInstrumentSlot, userName, bookingsBySlot, conflictIdsByInstrument, currentWeekStartStr]);
+  }, [currentInst, viewMode, weekDays, bookingsByInstrumentSlot, userName, getBlockingHintsForDate, currentWeekStartStr]);
 
   const handleConfirmBooking = async (repeatCount, isFullDay, _subOption, isOvernight, isWorkingHours, requestedQty) => {
     if (!bookingModal.instrument) return;
     setIsBookingProcess(true);
-    const { date: startDateStr, hour: startHour, instrument } = bookingModal; 
-    const batch = writeBatch(db); 
+    const { date: startDateStr, hour: startHour, instrument } = bookingModal;
+    const requestedQuantity = Math.max(1, Number(requestedQty) || 1);
     const newSlots = buildBookingSlots({ startDateStr, startHour, repeatCount, isFullDay, isOvernight, isWorkingHours });
     const bookingToken = globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
     const bookingGroupId = (isFullDay || isOvernight || isWorkingHours || repeatCount > 0) ? `GRP-${bookingToken}` : null;
     const firstPastSlot = newSlots.find((slot) => isSlotInPast(slot.date));
-    const conflicts = findConflicts({ instrument, requestedQty, slots: newSlots });
+    const conflicts = findConflicts({ instrument, requestedQty: requestedQuantity, slots: newSlots });
+    const conflictingInstrumentIds = Array.from(conflictIdsByInstrument[instrument.id] || []);
 
     if (firstPastSlot) {
       pushToast(`Cannot book before current week start (${currentWeekStartStr}).`, 'warning', 4400);
@@ -394,45 +505,233 @@ const MemberApp = ({ labName, userName, onLogout }) => {
       setIsBookingProcess(false);
       return;
     }
-    
+
     try {
-      newSlots.forEach(slot => {
-        batch.set(doc(collection(db, 'artifacts', appId, 'public', 'data', 'bookings')), {
-          labName, instrumentId: instrument.id, instrumentName: instrument.name, date: slot.date, hour: slot.hour, 
-          userName, authUid: auth.currentUser?.uid || null, requestedQuantity: Number(requestedQty), bookingGroupId, createdAt: serverTimestamp()
-        });
-      });
-      await batch.commit(); 
-      await addAuditLog(labName, 'BOOKING', `Booked: ${instrument.name} (${requestedQty} qty)`, userName);
+      await measurePerfAsync(
+        'member.booking.transaction.create',
+        () => runTransaction(db, async (transaction) => {
+          const instrumentRef = doc(db, 'artifacts', appId, 'public', 'data', 'instruments', instrument.id);
+          const instrumentSnap = await transaction.get(instrumentRef);
+          if (!instrumentSnap.exists()) {
+            const missingError = new Error('Instrument no longer exists.');
+            missingError.code = 'BOOKING_INSTRUMENT_MISSING';
+            throw missingError;
+          }
+
+          const liveInstrument = instrumentSnap.data() || {};
+          const liveCapacity = Math.max(1, Number(liveInstrument.maxCapacity ?? instrument.maxCapacity ?? 1));
+          const liveConflictInstrumentIds = new Set([
+            ...(Array.isArray(liveInstrument.conflicts) ? liveInstrument.conflicts : []),
+            ...conflictingInstrumentIds
+          ]);
+          const aggregateStateCache = new Map();
+
+          const getTransactionAggregateState = async (instrumentId, dateStr, hour) => {
+            const cacheKey = getInstSlotKey(instrumentId, dateStr, hour);
+            const cached = aggregateStateCache.get(cacheKey);
+            if (cached) return cached;
+
+            const aggregateRef = getAggregateDocRef(instrumentId, dateStr, hour);
+            const aggregateSnap = await transaction.get(aggregateRef);
+            const fallbackState = getFallbackAggregateState(instrumentId, dateStr, hour);
+            const normalized = normalizeAggregateState(
+              aggregateSnap.exists() ? aggregateSnap.data() : null,
+              fallbackState
+            );
+            const state = {
+              ref: aggregateRef,
+              instrumentId,
+              date: dateStr,
+              hour,
+              usedQuantity: normalized.usedQuantity,
+              bookingCount: normalized.bookingCount
+            };
+            aggregateStateCache.set(cacheKey, state);
+            return state;
+          };
+
+          for (const slot of newSlots) {
+            const ownState = await getTransactionAggregateState(instrument.id, slot.date, slot.hour);
+            if (ownState.usedQuantity + requestedQuantity > liveCapacity) {
+              const fullError = new Error(`${slot.date} ${formatHour(slot.hour)} (Full)`);
+              fullError.code = 'BOOKING_CAPACITY';
+              throw fullError;
+            }
+
+            for (const conflictInstrumentId of liveConflictInstrumentIds) {
+              if (!conflictInstrumentId || conflictInstrumentId === instrument.id) continue;
+              const conflictState = await getTransactionAggregateState(conflictInstrumentId, slot.date, slot.hour);
+              if (conflictState.usedQuantity <= 0) continue;
+
+              const blockingBookings = getBlockingBookings(instrument.id, slot.date, slot.hour);
+              const summary = summarizeBlockingBookings(blockingBookings);
+              const conflictLabel = summary.instrumentsText
+                ? summary.labelPrefix
+                : `Conflict: ${(instrumentNameById[conflictInstrumentId] || 'another instrument')} is booked`;
+              const conflictError = new Error(`${slot.date} ${formatHour(slot.hour)} (${conflictLabel})`);
+              conflictError.code = 'BOOKING_CONFLICT';
+              throw conflictError;
+            }
+          }
+
+          for (const slot of newSlots) {
+            const ownState = await getTransactionAggregateState(instrument.id, slot.date, slot.hour);
+            ownState.usedQuantity += requestedQuantity;
+            ownState.bookingCount += 1;
+            transaction.set(
+              ownState.ref,
+              {
+                labName,
+                instrumentId: instrument.id,
+                date: slot.date,
+                hour: slot.hour,
+                usedQuantity: ownState.usedQuantity,
+                bookingCount: ownState.bookingCount,
+                updatedAt: serverTimestamp()
+              },
+              { merge: true }
+            );
+
+            const bookingRef = doc(collection(db, 'artifacts', appId, 'public', 'data', 'bookings'));
+            transaction.set(bookingRef, {
+              labName,
+              instrumentId: instrument.id,
+              instrumentName: instrument.name,
+              date: slot.date,
+              hour: slot.hour,
+              userName,
+              authUid: auth.currentUser?.uid || null,
+              requestedQuantity,
+              bookingGroupId,
+              createdAt: serverTimestamp()
+            });
+          }
+        }),
+        {
+          slots: newSlots.length,
+          repeatCount,
+          mode: isWorkingHours ? 'working_hours' : isFullDay ? 'full_day' : isOvernight ? 'overnight' : 'hourly'
+        }
+      );
+      await addAuditLog(labName, 'BOOKING', `Booked: ${instrument.name} (${requestedQuantity} qty)`, userName);
       setBookingModal({ ...bookingModal, isOpen: false });
       pushToast('Booking confirmed.', 'success');
-    } catch {
-      pushToast('Booking failed. Please try again.', 'error');
-    } finally { setIsBookingProcess(false); }
+    } catch (error) {
+      if (error?.code === 'BOOKING_CONFLICT' || error?.code === 'BOOKING_CAPACITY') {
+        pushToast(`Conflict detected: ${error.message}`, 'warning', 4400);
+      } else {
+        pushToast('Booking failed. Please try again.', 'error');
+      }
+    } finally {
+      setIsBookingProcess(false);
+    }
   };
-  
-  const handleDeleteBooking = async () => { 
-    if(!bookingToDelete) return; 
-    const batch = writeBatch(db);
+
+  const cancelBookingTargets = useCallback(async (targets) => {
+    if (!Array.isArray(targets) || targets.length === 0) return 0;
+    return measurePerfAsync(
+      'member.booking.transaction.cancel',
+      () => runTransaction(db, async (transaction) => {
+        const aggregateStateCache = new Map();
+        let cancelledCount = 0;
+
+        const getTransactionAggregateState = async (instrumentId, dateStr, hour) => {
+          const cacheKey = getInstSlotKey(instrumentId, dateStr, hour);
+          const cached = aggregateStateCache.get(cacheKey);
+          if (cached) return cached;
+
+          const aggregateRef = getAggregateDocRef(instrumentId, dateStr, hour);
+          const aggregateSnap = await transaction.get(aggregateRef);
+          const fallbackState = getFallbackAggregateState(instrumentId, dateStr, hour);
+          const normalized = normalizeAggregateState(
+            aggregateSnap.exists() ? aggregateSnap.data() : null,
+            fallbackState
+          );
+          const state = {
+            ref: aggregateRef,
+            instrumentId,
+            date: dateStr,
+            hour,
+            usedQuantity: normalized.usedQuantity,
+            bookingCount: normalized.bookingCount
+          };
+          aggregateStateCache.set(cacheKey, state);
+          return state;
+        };
+
+        for (const target of targets) {
+          if (!target?.ref) continue;
+          const bookingSnap = await transaction.get(target.ref);
+          if (!bookingSnap.exists()) continue;
+
+          const booking = bookingSnap.data() || {};
+          const qty = Math.max(1, Number(booking.requestedQuantity) || 1);
+          const aggregateState = await getTransactionAggregateState(booking.instrumentId, booking.date, booking.hour);
+          aggregateState.usedQuantity = Math.max(0, aggregateState.usedQuantity - qty);
+          aggregateState.bookingCount = Math.max(0, aggregateState.bookingCount - 1);
+
+          if (aggregateState.bookingCount === 0 || aggregateState.usedQuantity === 0) {
+            transaction.delete(aggregateState.ref);
+          } else {
+            transaction.set(
+              aggregateState.ref,
+              {
+                labName,
+                instrumentId: booking.instrumentId,
+                date: booking.date,
+                hour: booking.hour,
+                usedQuantity: aggregateState.usedQuantity,
+                bookingCount: aggregateState.bookingCount,
+                updatedAt: serverTimestamp()
+              },
+              { merge: true }
+            );
+          }
+
+          transaction.delete(bookingSnap.ref);
+          cancelledCount += 1;
+        }
+
+        return cancelledCount;
+      }),
+      { targets: targets.length }
+    );
+  }, [getAggregateDocRef, getFallbackAggregateState, labName]);
+
+  const handleDeleteBooking = async () => {
+    if (!bookingToDelete) return;
+
     try {
       if (bookingToDelete.bookingGroupId) {
-        const q = query(
+        const groupQuery = query(
           collection(db, 'artifacts', appId, 'public', 'data', 'bookings'),
           where('bookingGroupId', '==', bookingToDelete.bookingGroupId),
           where('labName', '==', labName)
         );
-        const snap = await getDocs(q);
-        snap.docs.forEach(d => batch.delete(d.ref));
-        await batch.commit();
-        await addAuditLog(labName, 'CANCEL_BATCH', `Batch cancel: ${bookingToDelete.instrumentName}`, userName);
-        pushToast('Batch booking cancelled.', 'success');
+        const snapshot = await getDocs(groupQuery);
+        const targets = snapshot.docs.map((bookingDoc) => ({ ref: bookingDoc.ref }));
+        const cancelledCount = await cancelBookingTargets(targets);
+        if (cancelledCount === 0) {
+          pushToast('No active slots found for this batch booking.', 'warning');
+        } else {
+          await addAuditLog(labName, 'CANCEL_BATCH', `Batch cancel: ${bookingToDelete.instrumentName}`, userName);
+          pushToast('Batch booking cancelled.', 'success');
+        }
       } else {
-        await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'bookings', bookingToDelete.id));
-        await addAuditLog(labName, 'CANCEL', `Cancelled: ${bookingToDelete.instrumentName}`, userName);
-        pushToast('Booking cancelled.', 'success');
+        const bookingRef = doc(db, 'artifacts', appId, 'public', 'data', 'bookings', bookingToDelete.id);
+        const cancelledCount = await cancelBookingTargets([{ ref: bookingRef }]);
+        if (cancelledCount === 0) {
+          pushToast('Booking already removed.', 'warning');
+        } else {
+          await addAuditLog(labName, 'CANCEL', `Cancelled: ${bookingToDelete.instrumentName}`, userName);
+          pushToast('Booking cancelled.', 'success');
+        }
       }
-      setBookingToDelete(null); 
-    } catch { pushToast("Unable to cancel booking. Please try again.", 'error'); }
+
+      setBookingToDelete(null);
+    } catch {
+      pushToast('Unable to cancel booking. Please try again.', 'error');
+    }
   };
 
   const handleSaveNote = async (msg) => {
@@ -446,9 +745,10 @@ const MemberApp = ({ labName, userName, onLogout }) => {
   };
 
   const overviewInstruments = useMemo(() => {
+    const selectedSet = new Set(overviewInstrumentIds);
     const pinnedSet = new Set(pinnedInstrumentIds);
     return instruments
-      .filter((inst) => overviewInstrumentIds.includes(inst.id))
+      .filter((inst) => selectedSet.has(inst.id))
       .sort((a, b) => {
         const ap = pinnedSet.has(a.id) ? 0 : 1;
         const bp = pinnedSet.has(b.id) ? 0 : 1;
@@ -534,6 +834,40 @@ const MemberApp = ({ labName, userName, onLogout }) => {
     }
     return `${instrumentName}, ${timeLabel}. Available. Activate to book.`;
   };
+
+  const buildModalSlots = useCallback(({ repeatOption, isFullDay, isOvernight, isWorkingHours }) => {
+    if (!bookingModal.date) return [];
+    return buildBookingSlots({
+      startDateStr: bookingModal.date,
+      startHour: bookingModal.hour,
+      repeatCount: repeatOption,
+      isFullDay,
+      isOvernight,
+      isWorkingHours
+    });
+  }, [bookingModal.date, bookingModal.hour]);
+
+  const getQuantityLimitForModal = useCallback(({ repeatOption, isFullDay, isOvernight, isWorkingHours }) => {
+    if (!bookingModal.instrument) return { maxAllowed: 1 };
+    const capacity = bookingModal.instrument.maxCapacity || 1;
+    const slots = buildModalSlots({ repeatOption, isFullDay, isOvernight, isWorkingHours });
+    if (slots.length === 0) return { maxAllowed: capacity };
+
+    const minRemaining = slots.reduce((acc, slot) => {
+      const used = (bookingsByInstrumentSlot.get(getInstSlotKey(bookingModal.instrument.id, slot.date, slot.hour)) || [])
+        .reduce((sum, booking) => sum + (Number(booking.requestedQuantity) || 1), 0);
+      return Math.min(acc, Math.max(0, capacity - used));
+    }, capacity);
+
+    return { maxAllowed: minRemaining };
+  }, [bookingModal.instrument, buildModalSlots, bookingsByInstrumentSlot]);
+
+  const getConflictPreviewForModal = useCallback(({ repeatOption, isFullDay, isOvernight, isWorkingHours, quantity }) => {
+    if (!bookingModal.instrument) return { count: 0, first: '' };
+    const slots = buildModalSlots({ repeatOption, isFullDay, isOvernight, isWorkingHours });
+    const conflicts = findConflicts({ instrument: bookingModal.instrument, requestedQty: quantity, slots });
+    return { count: conflicts.length, first: conflicts[0] || '' };
+  }, [bookingModal.instrument, buildModalSlots, findConflicts]);
 
   return (
     <div className="flex flex-col h-screen ds-page font-sans text-slate-900 overflow-hidden text-sm ds-animate-enter-fast">
@@ -929,7 +1263,7 @@ const MemberApp = ({ labName, userName, onLogout }) => {
                       const isMine = Boolean(metric.isMine);
                       const primarySlot = metric.primarySlot || null;
                       const overflowCount = metric.overflowCount || 0;
-                      const blockingDetails = metric.blockingDetails || { labelPrefix: '', instrumentsText: '' };
+                      const blockLabel = metric.blockLabel || '';
                       const totalUsed = metric.totalUsed || 0;
                       const isBlocked = Boolean(metric.isBlocked);
                       const isBlockStart = Boolean(metric.isBlockStart);
@@ -953,7 +1287,7 @@ const MemberApp = ({ labName, userName, onLogout }) => {
                         isMine,
                         isBlocked,
                         isPast,
-                        blockLabel: blockingDetails.labelPrefix,
+                        blockLabel,
                         primarySlot,
                         overflowCount
                       });
@@ -963,7 +1297,7 @@ const MemberApp = ({ labName, userName, onLogout }) => {
                           {isBlocked && isBlockStart && (
                             <button
                               type="button"
-                              title={blockingDetails.labelPrefix}
+                              title={blockLabel}
                               aria-label={`View conflict details for ${currentInst?.name || 'instrument'} at ${formatHour(hour)} on ${dateStr}`}
                               onClick={(e) => {
                                 e.stopPropagation();
@@ -974,7 +1308,7 @@ const MemberApp = ({ labName, userName, onLogout }) => {
                                   slots,
                                   isBlocked,
                                   isPast,
-                                  blockLabel: blockingDetails.labelPrefix,
+                                  blockLabel,
                                   totalUsed
                                 });
                               }}
@@ -999,7 +1333,7 @@ const MemberApp = ({ labName, userName, onLogout }) => {
                                   slots,
                                   isBlocked,
                                   isPast,
-                                  blockLabel: blockingDetails.labelPrefix,
+                                  blockLabel,
                                   totalUsed
                                 });
                               }}
@@ -1092,40 +1426,8 @@ const MemberApp = ({ labName, userName, onLogout }) => {
         instrument={bookingModal.instrument}
         onConfirm={handleConfirmBooking}
         isBooking={isBookingProcess}
-        getQuantityLimit={({ repeatOption, isFullDay, isOvernight, isWorkingHours }) => {
-          if (!bookingModal.instrument) return { maxAllowed: 1 };
-          const capacity = bookingModal.instrument.maxCapacity || 1;
-          const slots = buildBookingSlots({
-            startDateStr: bookingModal.date,
-            startHour: bookingModal.hour,
-            repeatCount: repeatOption,
-            isFullDay,
-            isOvernight,
-            isWorkingHours
-          });
-          if (slots.length === 0) return { maxAllowed: capacity };
-
-          const minRemaining = slots.reduce((acc, slot) => {
-            const used = (bookingsByInstrumentSlot.get(getInstSlotKey(bookingModal.instrument.id, slot.date, slot.hour)) || [])
-              .reduce((sum, b) => sum + (Number(b.requestedQuantity) || 1), 0);
-            return Math.min(acc, Math.max(0, capacity - used));
-          }, capacity);
-
-          return { maxAllowed: minRemaining };
-        }}
-        getConflictPreview={({ repeatOption, isFullDay, isOvernight, isWorkingHours, quantity }) => {
-          if (!bookingModal.instrument) return { count: 0, first: '' };
-          const slots = buildBookingSlots({
-            startDateStr: bookingModal.date,
-            startHour: bookingModal.hour,
-            repeatCount: repeatOption,
-            isFullDay,
-            isOvernight,
-            isWorkingHours
-          });
-          const conflicts = findConflicts({ instrument: bookingModal.instrument, requestedQty: quantity, slots });
-          return { count: conflicts.length, first: conflicts[0] || '' };
-        }}
+        getQuantityLimit={getQuantityLimitForModal}
+        getConflictPreview={getConflictPreviewForModal}
       />
       <NoteModal isOpen={showNoteModal} onClose={()=>setShowNoteModal(false)} instrument={currentInst} onSave={handleSaveNote} />
       

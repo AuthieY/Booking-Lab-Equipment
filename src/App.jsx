@@ -1,15 +1,24 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, lazy, Suspense } from 'react';
 import { signInAnonymously, onAuthStateChanged } from 'firebase/auth';
 import { Loader2 } from 'lucide-react';
 
 // --- 1. Core Config ---
 import { auth } from './api/firebase';
+import { reportClientError } from './utils/monitoring';
 
 // --- 2. Major Screens ---
-import { GateScreen } from './components/GateScreen';
-import IdentityScreen from './components/auth/IdentityScreen';
-import AdminDashboard from './components/admin/AdminDashboard';
-import MemberApp from './components/member/MemberApp';
+const GateScreen = lazy(() =>
+  import('./components/GateScreen').then((module) => ({ default: module.GateScreen }))
+);
+const IdentityScreen = lazy(() => import('./components/auth/IdentityScreen'));
+const AdminDashboard = lazy(() => import('./components/admin/AdminDashboard'));
+const MemberApp = lazy(() => import('./components/member/MemberApp'));
+
+const RouteLoader = () => (
+  <div className="flex items-center justify-center min-h-screen bg-slate-50">
+    <Loader2 className="animate-spin text-indigo-600 w-8 h-8" />
+  </div>
+);
 
 export default function App() {
   // --- Global States ---
@@ -28,7 +37,9 @@ export default function App() {
     const initAuth = async () => { 
       try { 
         // 1. Initial anonymous login
-        await signInAnonymously(auth); 
+        if (!auth.currentUser) {
+          await signInAnonymously(auth);
+        }
         
         // 2. Try to recover session from localStorage
         const savedSession = localStorage.getItem('lab_session');
@@ -46,7 +57,12 @@ export default function App() {
           }
         }
       } catch (e) {
-        console.error("Initialization failed", e);
+        reportClientError({
+          source: 'app-init',
+          error: e,
+          stack: e?.stack || '',
+          extra: { phase: 'signInAnonymously/session-restore' }
+        });
         setInitError('Unable to initialize secure session. Please check Firebase Authentication settings and try again.');
       } finally {
         setIsInitializing(false);
@@ -56,6 +72,38 @@ export default function App() {
     initAuth(); 
     const unsubscribe = onAuthStateChanged(auth, (u) => setUser(u)); 
     return () => unsubscribe();
+  }, []);
+
+  useEffect(() => {
+    const handleWindowError = (event) => {
+      reportClientError({
+        source: 'window.error',
+        message: event.message || 'Unhandled window error',
+        stack: event.error?.stack || '',
+        extra: {
+          filename: event.filename || '',
+          lineno: event.lineno || null,
+          colno: event.colno || null
+        }
+      });
+    };
+    const handleUnhandledRejection = (event) => {
+      const reason = event.reason;
+      reportClientError({
+        source: 'window.unhandledrejection',
+        message: reason?.message || String(reason || 'Unhandled promise rejection'),
+        stack: reason?.stack || '',
+        extra: {
+          name: reason?.name || ''
+        }
+      });
+    };
+    window.addEventListener('error', handleWindowError);
+    window.addEventListener('unhandledrejection', handleUnhandledRejection);
+    return () => {
+      window.removeEventListener('error', handleWindowError);
+      window.removeEventListener('unhandledrejection', handleUnhandledRejection);
+    };
   }, []);
 
   // --- Helper: Save session to local storage ---
@@ -136,19 +184,35 @@ export default function App() {
 
   // B. Step 1: Gate (Choose/Create Lab)
   if (!appData.labName) {
-    return <GateScreen onLoginSuccess={handleLoginSuccess} />;
+    return (
+      <Suspense fallback={<RouteLoader />}>
+        <GateScreen onLoginSuccess={handleLoginSuccess} />
+      </Suspense>
+    );
   }
   
   // C. Admin Route
   if (appData.role === 'ADMIN') {
-    return <AdminDashboard labName={appData.labName} onLogout={logout} />;
+    return (
+      <Suspense fallback={<RouteLoader />}>
+        <AdminDashboard labName={appData.labName} onLogout={logout} />
+      </Suspense>
+    );
   }
   
   // D. Identity Verification Stage
   if (identityStage || (appData.role === 'MEMBER' && !appData.userName)) {
-    return <IdentityScreen labName={appData.labName} onIdentityVerified={handleIdentityVerified} />;
+    return (
+      <Suspense fallback={<RouteLoader />}>
+        <IdentityScreen labName={appData.labName} onIdentityVerified={handleIdentityVerified} />
+      </Suspense>
+    );
   }
   
   // E. Member Main App
-  return <MemberApp labName={appData.labName} userName={appData.userName} onLogout={logout} />;
+  return (
+    <Suspense fallback={<RouteLoader />}>
+      <MemberApp labName={appData.labName} userName={appData.userName} onLogout={logout} />
+    </Suspense>
+  );
 }

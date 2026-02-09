@@ -1,10 +1,237 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    // Baseline: only authenticated users can access booking data.
-    // Tighten this further by validating per-lab membership and role claims.
-    match /artifacts/{appId}/public/data/{collectionId}/{docId} {
-      allow read, write: if request.auth != null;
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isShortString(value, maxLen) {
+      return value is string && value.size() > 0 && value.size() <= maxLen;
+    }
+
+    function isOptionalString(value, maxLen) {
+      return value == null || (value is string && value.size() <= maxLen);
+    }
+
+    function isDateString(value) {
+      return value is string && value.matches('^\\d{4}-\\d{2}-\\d{2}$');
+    }
+
+    function validCredentialRecord(record) {
+      return record is map
+        && record.keys().hasOnly(['v', 'algo', 'iterations', 'salt', 'hash'])
+        && record.v == 1
+        && record.algo == 'PBKDF2-SHA256'
+        && record.iterations is int
+        && record.iterations >= 100000
+        && record.iterations <= 500000
+        && record.salt is string
+        && record.salt.size() >= 16
+        && record.salt.size() <= 128
+        && record.hash is string
+        && record.hash.size() >= 32
+        && record.hash.size() <= 256;
+    }
+
+    function validLabDocument(data) {
+      return data.keys().hasOnly([
+        'name',
+        'adminCredential',
+        'memberCredential',
+        'adminPin',
+        'memberPin',
+        'createdAt'
+      ])
+      && isShortString(data.name, 80)
+      && (
+        (('adminCredential' in data) && validCredentialRecord(data.adminCredential))
+        || (('adminPin' in data) && isShortString(data.adminPin, 128))
+      )
+      && (
+        (('memberCredential' in data) && validCredentialRecord(data.memberCredential))
+        || (('memberPin' in data) && isShortString(data.memberPin, 128))
+      )
+      && (!('createdAt' in data) || data.createdAt is timestamp);
+    }
+
+    function validLabUserDocument(data) {
+      return data.keys().hasOnly([
+        'labName',
+        'userName',
+        'credential',
+        'pinCode',
+        'createdAt'
+      ])
+      && isShortString(data.labName, 80)
+      && isShortString(data.userName, 80)
+      && (
+        (('credential' in data) && validCredentialRecord(data.credential))
+        || (('pinCode' in data) && isShortString(data.pinCode, 128))
+      )
+      && (!('createdAt' in data) || data.createdAt is timestamp);
+    }
+
+    function validInstrumentDocument(data) {
+      return data.keys().hasOnly([
+        'labName',
+        'name',
+        'location',
+        'maxCapacity',
+        'color',
+        'subOptions',
+        'conflicts',
+        'isUnderMaintenance',
+        'createdAt'
+      ])
+      && isShortString(data.labName, 80)
+      && isShortString(data.name, 120)
+      && isOptionalString(data.location, 120)
+      && data.maxCapacity is int
+      && data.maxCapacity >= 1
+      && data.maxCapacity <= 1000
+      && isOptionalString(data.color, 64)
+      && (!('subOptions' in data) || (data.subOptions is list && data.subOptions.size() <= 40))
+      && (!('conflicts' in data) || (data.conflicts is list && data.conflicts.size() <= 50))
+      && (!('isUnderMaintenance' in data) || data.isUnderMaintenance is bool)
+      && (!('createdAt' in data) || data.createdAt is timestamp);
+    }
+
+    function validBookingDocument(data) {
+      return data.keys().hasOnly([
+        'labName',
+        'instrumentId',
+        'instrumentName',
+        'date',
+        'hour',
+        'userName',
+        'authUid',
+        'requestedQuantity',
+        'bookingGroupId',
+        'createdAt'
+      ])
+      && isShortString(data.labName, 80)
+      && isShortString(data.instrumentId, 120)
+      && isShortString(data.instrumentName, 120)
+      && isDateString(data.date)
+      && data.hour is int
+      && data.hour >= 0
+      && data.hour <= 23
+      && isShortString(data.userName, 80)
+      && data.requestedQuantity is int
+      && data.requestedQuantity >= 1
+      && data.requestedQuantity <= 1000
+      && (data.authUid == null || (data.authUid is string && data.authUid == request.auth.uid))
+      && (data.bookingGroupId == null || (data.bookingGroupId is string && data.bookingGroupId.size() <= 96))
+      && data.createdAt is timestamp;
+    }
+
+    function validNoteDocument(data) {
+      return data.keys().hasOnly([
+        'labName',
+        'instrumentId',
+        'instrumentName',
+        'userName',
+        'message',
+        'timestamp'
+      ])
+      && isShortString(data.labName, 80)
+      && isShortString(data.instrumentId, 120)
+      && isShortString(data.instrumentName, 120)
+      && isShortString(data.userName, 80)
+      && isShortString(data.message, 2000)
+      && data.timestamp is timestamp;
+    }
+
+    function validLogDocument(data) {
+      return data.keys().hasOnly([
+        'labName',
+        'action',
+        'message',
+        'userName',
+        'timestamp'
+      ])
+      && isShortString(data.labName, 80)
+      && isShortString(data.action, 60)
+      && isShortString(data.message, 400)
+      && isShortString(data.userName, 80)
+      && data.timestamp is timestamp;
+    }
+
+    function validAggregateDocument(data) {
+      return data.keys().hasOnly([
+        'labName',
+        'instrumentId',
+        'date',
+        'hour',
+        'usedQuantity',
+        'bookingCount',
+        'updatedAt'
+      ])
+      && isShortString(data.labName, 80)
+      && isShortString(data.instrumentId, 120)
+      && isDateString(data.date)
+      && data.hour is int
+      && data.hour >= 0
+      && data.hour <= 23
+      && data.usedQuantity is int
+      && data.usedQuantity >= 0
+      && data.usedQuantity <= 100000
+      && data.bookingCount is int
+      && data.bookingCount >= 0
+      && data.bookingCount <= 100000
+      && data.updatedAt is timestamp;
+    }
+
+    match /artifacts/{appId}/public/data/labs/{labId} {
+      allow read: if isSignedIn();
+      allow create, update: if isSignedIn() && validLabDocument(request.resource.data);
+      allow delete: if false;
+    }
+
+    match /artifacts/{appId}/public/data/lab_users/{userId} {
+      allow read: if isSignedIn();
+      allow create, update: if isSignedIn() && validLabUserDocument(request.resource.data);
+      allow delete: if false;
+    }
+
+    match /artifacts/{appId}/public/data/instruments/{instrumentId} {
+      allow read: if isSignedIn();
+      allow create, update: if isSignedIn() && validInstrumentDocument(request.resource.data);
+      allow delete: if isSignedIn();
+    }
+
+    match /artifacts/{appId}/public/data/bookings/{bookingId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn() && validBookingDocument(request.resource.data);
+      allow update: if false;
+      allow delete: if isSignedIn()
+        && (
+          resource.data.authUid == null
+          || resource.data.authUid == request.auth.uid
+        );
+    }
+
+    match /artifacts/{appId}/public/data/booking_slot_aggregates/{aggregateId} {
+      allow read: if isSignedIn();
+      allow create, update: if isSignedIn() && validAggregateDocument(request.resource.data);
+      allow delete: if isSignedIn();
+    }
+
+    match /artifacts/{appId}/public/data/notes/{noteId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn() && validNoteDocument(request.resource.data);
+      allow update: if false;
+      allow delete: if isSignedIn();
+    }
+
+    match /artifacts/{appId}/public/data/logs/{logId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn() && validLogDocument(request.resource.data);
+      allow update, delete: if false;
+    }
+
+    match /artifacts/{appId}/public/data/{document=**} {
+      allow read, write: if false;
     }
   }
 }

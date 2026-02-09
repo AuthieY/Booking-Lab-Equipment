@@ -12,9 +12,25 @@ export const sortSlotsForDisplay = (slots = [], currentUserName) => (
   })
 );
 
-export const getPrimarySlot = (slots = [], currentUserName) => (
-  sortSlotsForDisplay(slots, currentUserName)[0] || null
-);
+export const getPrimarySlot = (slots = [], currentUserName) => {
+  if (!slots.length) return null;
+  let primary = slots[0];
+  for (let index = 1; index < slots.length; index += 1) {
+    const candidate = slots[index];
+    const primaryMine = primary.userName === currentUserName ? 0 : 1;
+    const candidateMine = candidate.userName === currentUserName ? 0 : 1;
+    if (candidateMine < primaryMine) {
+      primary = candidate;
+      continue;
+    }
+    if (candidateMine === primaryMine) {
+      const candidateName = candidate.userName || '';
+      const primaryName = primary.userName || '';
+      if (candidateName.localeCompare(primaryName) < 0) primary = candidate;
+    }
+  }
+  return primary;
+};
 
 export const getOverflowCount = (slots = []) => Math.max(0, slots.length - 1);
 

@@ -7,10 +7,17 @@ import {
 } from 'lucide-react';
 import { db, appId, addAuditLog } from '../../api/firebase';
 import { formatTime, getColorStyle } from '../../utils/helpers';
+import { applyDocChanges } from '../../utils/firestore';
+import { measurePerf } from '../../utils/perf';
 import InstrumentModal from '../modals/InstrumentModal';
 import ConfirmDialog from '../common/ConfirmDialog';
 import ToastStack from '../common/ToastStack';
 import { useToast } from '../../hooks/useToast';
+
+const isBookingActivityLog = (log) => {
+  const action = (log.action || '').toUpperCase();
+  return action.includes('BOOK') || action.includes('CANCEL');
+};
 
 const AdminDashboard = ({ labName, onLogout }) => {
   const [instruments, setInstruments] = useState([]);
@@ -35,13 +42,20 @@ const AdminDashboard = ({ labName, onLogout }) => {
     setHasLoadedInstruments(false);
     setHasLoadedLogs(false);
     setHasLoadedNotes(false);
+    setInstruments([]);
+    setLogs([]);
+    setNotes([]);
 
     // 1) Instruments stream
     const qInst = query(collection(db, 'artifacts', appId, 'public', 'data', 'instruments'), where('labName', '==', labName));
     const unsubInst = onSnapshot(
       qInst,
       (snap) => {
-        setInstruments(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+        setInstruments((prev) => measurePerf(
+          'admin.instruments.applyDocChanges',
+          () => applyDocChanges(prev, snap.docChanges()),
+          { changes: snap.docChanges().length }
+        ));
         setHasLoadedInstruments(true);
       },
       () => {
@@ -63,8 +77,15 @@ const AdminDashboard = ({ labName, onLogout }) => {
     const unsubLogs = onSnapshot(
       qLogs,
       (snap) => {
-        const data = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
-        setLogs(data);
+        setLogs((prev) => {
+          const next = measurePerf(
+            'admin.logs.applyDocChanges',
+            () => applyDocChanges(prev, snap.docChanges()),
+            { changes: snap.docChanges().length }
+          );
+          next.sort((a, b) => (b.timestamp?.seconds || 0) - (a.timestamp?.seconds || 0));
+          return next;
+        });
         setHasLoadedLogs(true);
       },
       () => {
@@ -78,9 +99,15 @@ const AdminDashboard = ({ labName, onLogout }) => {
     const unsubNotes = onSnapshot(
       qNotes,
       (snap) => {
-          const data = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-          data.sort((a, b) => (b.timestamp?.seconds || 0) - (a.timestamp?.seconds || 0));
-          setNotes(data);
+          setNotes((prev) => {
+            const next = measurePerf(
+              'admin.notes.applyDocChanges',
+              () => applyDocChanges(prev, snap.docChanges()),
+              { changes: snap.docChanges().length }
+            );
+            next.sort((a, b) => (b.timestamp?.seconds || 0) - (a.timestamp?.seconds || 0));
+            return next;
+          });
           setHasLoadedNotes(true);
       },
       () => {
@@ -159,24 +186,62 @@ const AdminDashboard = ({ labName, onLogout }) => {
     }));
   };
 
-  const logsByMonth = useMemo(() => {
-    const map = {};
-    logs.forEach((log) => {
-      const d = log.timestamp?.toDate?.();
-      if (!d) return;
-      const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
-      if (!map[key]) {
-        map[key] = {
-          label: d.toLocaleDateString('en-US', { month: 'short', year: 'numeric' }),
-          logs: []
-        };
-      }
-      map[key].logs.push(log);
-    });
-    return Object.entries(map)
-      .sort((a, b) => b[0].localeCompare(a[0]))
-      .map(([key, value]) => ({ key, ...value }));
-  }, [logs]);
+  const notesByInstrument = useMemo(() => measurePerf(
+    'admin.notes.groupByInstrument',
+    () => {
+      const grouped = {};
+      notes.forEach((note) => {
+        if (!note.instrumentId) return;
+        if (!grouped[note.instrumentId]) grouped[note.instrumentId] = [];
+        grouped[note.instrumentId].push(note);
+      });
+      return grouped;
+    },
+    { noteCount: notes.length }
+  ), [notes]);
+
+  const logsByMonth = useMemo(() => measurePerf(
+    'admin.logs.groupByMonth',
+    () => {
+      const map = {};
+      logs.forEach((log) => {
+        const d = log.timestamp?.toDate?.();
+        if (!d) return;
+        const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+        if (!map[key]) {
+          map[key] = {
+            label: d.toLocaleDateString('en-US', { month: 'short', year: 'numeric' }),
+            logs: []
+          };
+        }
+        map[key].logs.push(log);
+      });
+      return Object.entries(map)
+        .sort((a, b) => b[0].localeCompare(a[0]))
+        .map(([key, value]) => ({ key, ...value }));
+    },
+    { logCount: logs.length }
+  ), [logs]);
+
+  const bookingUsersByMonth = useMemo(() => measurePerf(
+    'admin.logs.groupBookingUsers',
+    () => {
+      const map = {};
+      logsByMonth.forEach((group) => {
+        const logsByUser = {};
+        group.logs.forEach((log) => {
+          if (!isBookingActivityLog(log)) return;
+          const userKey = log.userName || 'Unknown';
+          if (!logsByUser[userKey]) logsByUser[userKey] = [];
+          logsByUser[userKey].push(log);
+        });
+        map[group.key] = Object.entries(logsByUser)
+          .sort((a, b) => ((b[1][0]?.timestamp?.seconds || 0) - (a[1][0]?.timestamp?.seconds || 0)));
+      });
+      return map;
+    },
+    { monthCount: logsByMonth.length }
+  ), [logsByMonth]);
 
   useEffect(() => {
     if (logsByMonth.length === 0) return;
@@ -207,11 +272,6 @@ const AdminDashboard = ({ labName, onLogout }) => {
       ...prev,
       [key]: !prev[key]
     }));
-  };
-
-  const isBookingActivityLog = (log) => {
-    const action = (log.action || '').toUpperCase();
-    return action.includes('BOOK') || action.includes('CANCEL');
   };
 
   return (
@@ -307,7 +367,7 @@ const AdminDashboard = ({ labName, onLogout }) => {
                     {(!hasLoadedInstruments || !hasLoadedNotes) && <div className="sr-only" role="status" aria-live="polite">Loading notes</div>}
 
                     {hasLoadedInstruments && hasLoadedNotes && instruments.map(inst => {
-                        const instrumentNotes = notes.filter(n => n.instrumentId === inst.id);
+                        const instrumentNotes = notesByInstrument[inst.id] || [];
                         if (instrumentNotes.length === 0) return null;
                         const isOpen = Boolean(openedInstrumentNotes[inst.id]);
                         const isExpanded = Boolean(expandedNotesByInstrument[inst.id]);
@@ -383,14 +443,7 @@ const AdminDashboard = ({ labName, onLogout }) => {
                     ))}
                     {hasLoadedLogs && logsByMonth.map((group) => {
                       const isOpen = Boolean(openedLogMonths[group.key]);
-                      const bookingLogs = group.logs.filter(isBookingActivityLog);
-                      const logsByUser = bookingLogs.reduce((acc, log) => {
-                        const userKey = log.userName || 'Unknown';
-                        if (!acc[userKey]) acc[userKey] = [];
-                        acc[userKey].push(log);
-                        return acc;
-                      }, {});
-                      const users = Object.entries(logsByUser).sort((a, b) => ((b[1][0]?.timestamp?.seconds || 0) - (a[1][0]?.timestamp?.seconds || 0)));
+                      const users = bookingUsersByMonth[group.key] || [];
                       return (
                         <div key={group.key} className="border border-slate-100 rounded-xl overflow-hidden">
                           <button

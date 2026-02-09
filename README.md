@@ -43,8 +43,13 @@ Current tests cover local-date handling and booking slot expansion rules.
 
 ## Data and Performance Notes
 - Member booking stream is scoped to a rolling date window around the current view, not full-history.
+- Booking writes/cancels are transaction-based and maintain per-slot aggregate docs for safer concurrency.
 - Admin logs are read only for the recent 2 months in UI.
 - Long-term log retention cleanup should run on backend scheduler (Cloud Function/cron), not in client UI.
+- Optional profiling in development:
+  - Enable: `localStorage.setItem('booking_perf_debug', '1')`
+  - Disable: `localStorage.removeItem('booking_perf_debug')`
+  - Recent measurements are stored in `localStorage.booking_perf_events`.
 
 ## Recommended Next Backend Step
 - Add a scheduled cleanup job to physically delete logs older than 2 months.
