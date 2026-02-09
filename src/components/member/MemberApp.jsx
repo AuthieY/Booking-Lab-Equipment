@@ -772,7 +772,7 @@ const MemberApp = ({ labName, userName, onLogout }) => {
   }, [selectedInstrumentId, currentInst, overviewInstruments.length, instruments.length, hasLoadedInstruments]);
   const dateNavigationLabel = useMemo(() => {
     if (viewMode === 'day' || !selectedInstrumentId) {
-      return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+      return date.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
     }
     return `${weekDays[0].getMonth() + 1}/${weekDays[0].getDate()} - ${weekDays[6].getMonth() + 1}/${weekDays[6].getDate()}`;
   }, [date, weekDays, viewMode, selectedInstrumentId]);
