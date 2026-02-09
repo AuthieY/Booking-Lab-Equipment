@@ -78,7 +78,7 @@ export const GateScreen = ({ onLoginSuccess }) => {
         </div>
         <h1 className="text-2xl font-bold text-center text-slate-800 mb-2">{isCreating ? 'Create lab' : role === 'ADMIN' ? 'Admin sign in' : 'Member sign in'}</h1>
         {!isCreating && (
-          <div className="flex bg-slate-100 p-1 rounded-[var(--ds-radius-lg)] overflow-hidden mb-6" role="tablist" aria-label="Choose role">
+          <div className="flex bg-slate-100 p-1 rounded-[var(--ds-radius-lg)] overflow-hidden mb-6" role="tablist" aria-label="Select role">
             <button type="button" role="tab" aria-selected={role==='MEMBER'} onClick={()=>setRole('MEMBER')} className={`flex-1 py-2 ds-tab text-xs font-bold ${role==='MEMBER'?'ds-tab-active text-blue-700':'ds-tab-inactive'}`}>Member</button>
             <button type="button" role="tab" aria-selected={role==='ADMIN'} onClick={()=>setRole('ADMIN')} className={`flex-1 py-2 ds-tab text-xs font-bold ${role==='ADMIN'?'ds-tab-active':'ds-tab-inactive'}`}>Admin</button>
           </div>

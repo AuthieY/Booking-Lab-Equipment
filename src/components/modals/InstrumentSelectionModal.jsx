@@ -97,7 +97,7 @@ const InstrumentSelectionModal = ({
           <div>
             <div className="font-bold">Select all instruments</div>
             <div className={`text-xs ${isAllSelected ? 'text-[#cfeafb]' : 'text-slate-500'}`}>
-              {isLoading ? 'Loading instruments...' : 'Use full overview matrix'}
+              {isLoading ? 'Loading instruments...' : 'Show all instruments in overview'}
             </div>
           </div>
           <div className={`w-6 h-6 rounded-full border flex items-center justify-center ${isAllSelected ? 'bg-white border-white' : 'border-slate-300'}`}>

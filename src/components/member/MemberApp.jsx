@@ -826,8 +826,8 @@ const MemberApp = ({ labName, userName, onLogout }) => {
   const selectionSummaryLabel = useMemo(() => {
     if (!hasLoadedInstruments) return 'Loading instruments...';
     if (selectedInstrumentId && currentInst) return 'Single instrument calendar';
-    if (overviewInstruments.length === 0) return 'Choose instruments to get started';
-    if (overviewInstruments.length === instruments.length) return 'All instruments in overview';
+    if (overviewInstruments.length === 0) return 'Select instruments to get started';
+    if (overviewInstruments.length === instruments.length) return 'All instruments selected';
     return `${overviewInstruments.length} instrument${overviewInstruments.length > 1 ? 's' : ''} selected`;
   }, [selectedInstrumentId, currentInst, overviewInstruments.length, instruments.length, hasLoadedInstruments]);
   const dateNavigationLabel = useMemo(() => {
@@ -948,14 +948,14 @@ const MemberApp = ({ labName, userName, onLogout }) => {
                   )}
                 </div>
               </div>
-              <button
-                type="button"
-                onClick={onLogout}
-                aria-label="Log out"
-                className="p-2.5 text-slate-500 bg-slate-100 rounded-full ds-transition hover:bg-slate-200"
-              >
-                <LogOut className="w-5 h-5" />
-              </button>
+                <button
+                  type="button"
+                  onClick={onLogout}
+                  aria-label="Sign out"
+                  className="p-2.5 text-slate-500 bg-slate-100 rounded-full ds-transition hover:bg-slate-200"
+                >
+                  <LogOut className="w-5 h-5" />
+                </button>
             </div>
           </header>
           <div className="px-4 py-3 border-b border-slate-200/80 bg-slate-50/70">
@@ -1044,7 +1044,7 @@ const MemberApp = ({ labName, userName, onLogout }) => {
                <p className="text-sm text-[var(--ds-text-muted)] mt-2">
                  {instruments.length === 0
                    ? 'No instrument has been added yet. Ask an admin to create instruments first.'
-                   : 'Choose instruments to get started'}
+                   : 'Select instruments to get started'}
                 </p>
                {instruments.length > 0 && (
                  <button

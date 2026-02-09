@@ -225,7 +225,7 @@ export default function App() {
     );
   }
 
-  // B. Step 1: Gate (Choose/Create Lab)
+  // B. Step 1: Gate (Select/Create Lab)
   if (!appData.labName) {
     return (
       <Suspense fallback={<RouteLoader />}>

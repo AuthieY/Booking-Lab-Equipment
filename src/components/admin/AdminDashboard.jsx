@@ -288,7 +288,7 @@ const AdminDashboard = ({ labName, onLogout }) => {
             {/* Tab navigation */}
             <div className="flex gap-3 mb-6 overflow-x-auto no-scrollbar" role="tablist" aria-label="Admin sections">
                 <button type="button" role="tab" aria-selected={activeTab==='INSTRUMENTS'} onClick={()=>setActiveTab('INSTRUMENTS')} className={`flex-1 min-w-[140px] p-4 ds-tab flex items-center justify-center gap-3 font-bold ${activeTab==='INSTRUMENTS'?'ds-tab-active':'ds-tab-inactive'}`}><Settings className="w-5 h-5"/> Instruments</button>
-                <button type="button" role="tab" aria-selected={activeTab==='NOTEBOOK'} onClick={()=>setActiveTab('NOTEBOOK')} className={`flex-1 min-w-[140px] p-4 ds-tab flex items-center justify-center gap-3 font-bold ${activeTab==='NOTEBOOK'?'ds-tab-active':'ds-tab-inactive'}`}><Book className="w-5 h-5"/> Notes</button>
+                <button type="button" role="tab" aria-selected={activeTab==='NOTEBOOK'} onClick={()=>setActiveTab('NOTEBOOK')} className={`flex-1 min-w-[140px] p-4 ds-tab flex items-center justify-center gap-3 font-bold ${activeTab==='NOTEBOOK'?'ds-tab-active':'ds-tab-inactive'}`}><Book className="w-5 h-5"/> Reports</button>
                 <button type="button" role="tab" aria-selected={activeTab==='LOGS'} onClick={()=>setActiveTab('LOGS')} className={`flex-1 min-w-[140px] p-4 ds-tab flex items-center justify-center gap-3 font-bold ${activeTab==='LOGS'?'ds-tab-active':'ds-tab-inactive'}`}><History className="w-5 h-5"/> Logs</button>
             </div>
 
@@ -346,7 +346,7 @@ const AdminDashboard = ({ labName, onLogout }) => {
                 <div className="space-y-4">
                     <div className="ds-card p-4 mb-2">
                       <h2 className="text-lg font-bold text-slate-800 flex items-center gap-2"><Book className="w-5 h-5 text-indigo-500"/> Latest reports by instrument</h2>
-                      <p className="text-xs text-slate-400 mt-1">Click an instrument to open its latest note, then use "See more" for older notes.</p>
+                      <p className="text-xs text-slate-400 mt-1">Click an instrument to open its latest report, then use "See more" for older reports.</p>
                     </div>
 
                     {(!hasLoadedInstruments || !hasLoadedNotes) && Array.from({ length: 3 }, (_, index) => (
@@ -364,7 +364,7 @@ const AdminDashboard = ({ labName, onLogout }) => {
                         <div className="mt-4 h-14 bg-slate-50 rounded-xl border border-slate-100" />
                       </div>
                     ))}
-                    {(!hasLoadedInstruments || !hasLoadedNotes) && <div className="sr-only" role="status" aria-live="polite">Loading notes</div>}
+                    {(!hasLoadedInstruments || !hasLoadedNotes) && <div className="sr-only" role="status" aria-live="polite">Loading reports</div>}
 
                     {hasLoadedInstruments && hasLoadedNotes && instruments.map(inst => {
                         const instrumentNotes = notesByInstrument[inst.id] || [];
@@ -377,7 +377,7 @@ const AdminDashboard = ({ labName, onLogout }) => {
                         const styles = getColorStyle(inst.color);
                         return (
                             <div key={inst.id} className="ds-card p-4 border-l-4 rounded-2xl" style={{ borderLeftColor: styles.accent || '#3b82f6' }}>
-                                <button type="button" aria-expanded={isOpen} aria-label={`${isOpen ? 'Collapse' : 'Expand'} notes for ${inst.name}`} onClick={() => toggleInstrumentPanel(inst.id)} className="w-full flex items-center justify-between gap-3 text-left">
+                                <button type="button" aria-expanded={isOpen} aria-label={`${isOpen ? 'Collapse' : 'Expand'} reports for ${inst.name}`} onClick={() => toggleInstrumentPanel(inst.id)} className="w-full flex items-center justify-between gap-3 text-left">
                                   <div className="flex items-center gap-3">
                                     <div className={`p-1.5 rounded-lg ${styles.bg} ${styles.text}`}><MessageSquare className="w-4 h-4"/></div>
                                     <div>
