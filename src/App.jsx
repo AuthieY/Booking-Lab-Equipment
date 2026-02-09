@@ -14,6 +14,15 @@ const IdentityScreen = lazy(() => import('./components/auth/IdentityScreen'));
 const AdminDashboard = lazy(() => import('./components/admin/AdminDashboard'));
 const MemberApp = lazy(() => import('./components/member/MemberApp'));
 
+const preloadMemberRoutes = () => {
+  import('./components/member/MemberApp');
+  import('./components/auth/IdentityScreen');
+};
+
+const preloadAdminRoute = () => {
+  import('./components/admin/AdminDashboard');
+};
+
 const RouteLoader = () => (
   <div className="flex items-center justify-center min-h-screen bg-slate-50">
     <Loader2 className="animate-spin text-indigo-600 w-8 h-8" />
@@ -33,45 +42,77 @@ export default function App() {
   const [initError, setInitError] = useState('');
 
   // --- Session Persistence Logic (30 Days) ---
-  useEffect(() => { 
-    const initAuth = async () => { 
-      try { 
-        // 1. Initial anonymous login
-        if (!auth.currentUser) {
-          await signInAnonymously(auth);
-        }
-        
-        // 2. Try to recover session from localStorage
-        const savedSession = localStorage.getItem('lab_session');
-        if (savedSession) {
-          try {
-            const { role, labName, userName, expiry } = JSON.parse(savedSession);
-            if (Date.now() < expiry) {
-              setAppData({ role, labName, userName });
-              if (role === 'MEMBER' && !userName) setIdentityStage(true);
-            } else {
-              localStorage.removeItem('lab_session');
-            }
-          } catch {
+  useEffect(() => {
+    let isActive = true;
+    let attemptedAnonymousSignIn = false;
+
+    const handleInitError = (error, phase) => {
+      reportClientError({
+        source: 'app-init',
+        error,
+        stack: error?.stack || '',
+        extra: { phase }
+      });
+      if (!isActive) return;
+      setInitError('Unable to initialize secure session. Please check Firebase Authentication settings and try again.');
+      setIsInitializing(false);
+    };
+
+    // Restore local session immediately to preselect route while auth hydrates.
+    try {
+      const savedSession = localStorage.getItem('lab_session');
+      if (savedSession) {
+        try {
+          const { role, labName, userName, expiry } = JSON.parse(savedSession);
+          if (Date.now() < expiry) {
+            setAppData({ role, labName, userName });
+            if (role === 'MEMBER' && !userName) setIdentityStage(true);
+
+            if (role === 'ADMIN') preloadAdminRoute();
+            if (role === 'MEMBER') preloadMemberRoutes();
+          } else {
             localStorage.removeItem('lab_session');
           }
+        } catch {
+          localStorage.removeItem('lab_session');
         }
-      } catch (e) {
-        reportClientError({
-          source: 'app-init',
-          error: e,
-          stack: e?.stack || '',
-          extra: { phase: 'signInAnonymously/session-restore' }
-        });
-        setInitError('Unable to initialize secure session. Please check Firebase Authentication settings and try again.');
-      } finally {
-        setIsInitializing(false);
       }
-    }; 
-    
-    initAuth(); 
-    const unsubscribe = onAuthStateChanged(auth, (u) => setUser(u)); 
-    return () => unsubscribe();
+    } catch (error) {
+      handleInitError(error, 'session-restore');
+      return () => {};
+    }
+
+    // Wait for auth persistence first; only sign in anonymously if no user exists.
+    const unsubscribe = onAuthStateChanged(
+      auth,
+      async (authUser) => {
+        if (!isActive) return;
+        setUser(authUser);
+
+        if (authUser) {
+          setIsInitializing(false);
+          return;
+        }
+
+        if (attemptedAnonymousSignIn) return;
+        attemptedAnonymousSignIn = true;
+
+        try {
+          await signInAnonymously(auth);
+          // Success path is handled by the next onAuthStateChanged callback.
+        } catch (error) {
+          handleInitError(error, 'signInAnonymously');
+        }
+      },
+      (error) => {
+        handleInitError(error, 'onAuthStateChanged');
+      }
+    );
+
+    return () => {
+      isActive = false;
+      unsubscribe();
+    };
   }, []);
 
   useEffect(() => {
@@ -118,10 +159,12 @@ export default function App() {
   // --- Login Success (GateScreen) ---
   const handleLoginSuccess = ({ role, labName }) => { 
     if (role === 'ADMIN') {
+      preloadAdminRoute();
       const data = { role, labName, userName: 'Admin' };
       setAppData(data); 
       saveSession(data); // Remember Admin
     } else { 
+      preloadMemberRoutes();
       setAppData({ role, labName, userName: null }); 
       setIdentityStage(true); 
       // We don't save session here yet because we need the userName from the next step
@@ -130,6 +173,7 @@ export default function App() {
 
   // --- Identity Verification Success (IdentityScreen) ---
   const handleIdentityVerified = (userName) => { 
+    preloadMemberRoutes();
     const updatedData = { ...appData, userName };
     setAppData(updatedData); 
     saveSession(updatedData); // Remember Member with their name
