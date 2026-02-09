@@ -5,6 +5,7 @@ import { Loader2 } from 'lucide-react';
 // --- 1. Core Config ---
 import { auth } from './api/firebase';
 import { reportClientError } from './utils/monitoring';
+import MemberApp from './components/member/MemberApp';
 
 // --- 2. Major Screens ---
 const GateScreen = lazy(() =>
@@ -12,10 +13,8 @@ const GateScreen = lazy(() =>
 );
 const IdentityScreen = lazy(() => import('./components/auth/IdentityScreen'));
 const AdminDashboard = lazy(() => import('./components/admin/AdminDashboard'));
-const MemberApp = lazy(() => import('./components/member/MemberApp'));
 
 const preloadMemberRoutes = () => {
-  import('./components/member/MemberApp');
   import('./components/auth/IdentityScreen');
 };
 
