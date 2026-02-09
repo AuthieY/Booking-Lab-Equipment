@@ -21,6 +21,32 @@ const REPEAT_LOOKAHEAD_DAYS = 24;
 const BOOKING_QUERY_BUFFER_DAYS = 14;
 const BOOKING_QUERY_GUARD_DAYS = 7;
 const BOOKING_AGGREGATE_COLLECTION = 'booking_slot_aggregates';
+const MEMBER_CACHE_TTL_MS = 1000 * 60 * 60; // 1 hour warm-start cache
+
+const loadCachedPayload = (cacheKey, maxAgeMs) => {
+  try {
+    const raw = localStorage.getItem(cacheKey);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== 'object') return null;
+    const savedAt = Number(parsed.savedAt) || 0;
+    if (savedAt > 0 && Date.now() - savedAt > maxAgeMs) {
+      localStorage.removeItem(cacheKey);
+      return null;
+    }
+    return parsed.payload ?? null;
+  } catch {
+    return null;
+  }
+};
+
+const saveCachedPayload = (cacheKey, payload) => {
+  try {
+    localStorage.setItem(cacheKey, JSON.stringify({ savedAt: Date.now(), payload }));
+  } catch {
+    // Ignore storage quota/private-mode failures.
+  }
+};
 
 const buildAggregateDocId = (lab, instrumentId, dateStr, hour) => (
   `${encodeURIComponent(lab)}__${instrumentId}__${dateStr}__${String(hour).padStart(2, '0')}`
@@ -43,6 +69,8 @@ const MemberApp = ({ labName, userName, onLogout }) => {
   const [hasHydratedPinned, setHasHydratedPinned] = useState(false);
   const [hasLoadedInstruments, setHasLoadedInstruments] = useState(false);
   const [hasLoadedBookings, setHasLoadedBookings] = useState(false);
+  const [isSyncingInstruments, setIsSyncingInstruments] = useState(false);
+  const [isSyncingBookings, setIsSyncingBookings] = useState(false);
   const [showSelectionModal, setShowSelectionModal] = useState(false);
   const [showNoteModal, setShowNoteModal] = useState(false);
   const [instruments, setInstruments] = useState([]);
@@ -101,6 +129,8 @@ const MemberApp = ({ labName, userName, onLogout }) => {
   const [bookingQueryRange, setBookingQueryRange] = useState(() =>
     buildBookingQueryRange(visibleRange.startDate, visibleRange.endDate)
   );
+  const instrumentCacheKey = useMemo(() => `booking_member_instruments:${labName}`, [labName]);
+  const bookingCacheKey = useMemo(() => `booking_member_bookings:${labName}`, [labName]);
 
   const formatHour = (hour) => `${String(hour).padStart(2, '0')}:00`;
   const getSlotKey = (dateStr, hour) => `${dateStr}|${hour}`;
@@ -167,6 +197,20 @@ const MemberApp = ({ labName, userName, onLogout }) => {
   ]);
 
   useEffect(() => {
+    const cachedInstruments = loadCachedPayload(instrumentCacheKey, MEMBER_CACHE_TTL_MS);
+    if (cachedInstruments?.items && Array.isArray(cachedInstruments.items)) {
+      setInstruments(cachedInstruments.items);
+      setHasLoadedInstruments(true);
+    }
+
+    const cachedBookings = loadCachedPayload(bookingCacheKey, MEMBER_CACHE_TTL_MS);
+    if (cachedBookings?.items && Array.isArray(cachedBookings.items)) {
+      setBookings(cachedBookings.items);
+      setHasLoadedBookings(true);
+    }
+  }, [instrumentCacheKey, bookingCacheKey]);
+
+  useEffect(() => {
     const hasOverviewSelection = !selectedInstrumentId && overviewInstrumentIds.length > 0;
     const hasSingleSelection = Boolean(selectedInstrumentId);
     if (!hasLoadedInstruments || !hasLoadedBookings) return;
@@ -195,8 +239,7 @@ const MemberApp = ({ labName, userName, onLogout }) => {
   }, [slotDetails.isOpen, bookingToDelete]);
 
   useEffect(() => {
-    setHasLoadedInstruments(false);
-    setInstruments([]);
+    setIsSyncingInstruments(true);
     const instrumentQuery = query(
       collection(db, 'artifacts', appId, 'public', 'data', 'instruments'),
       where('labName', '==', labName)
@@ -210,9 +253,11 @@ const MemberApp = ({ labName, userName, onLogout }) => {
           { changes: snapshot.docChanges().length }
         ));
         setHasLoadedInstruments(true);
+        setIsSyncingInstruments(false);
       },
       () => {
         setHasLoadedInstruments(true);
+        setIsSyncingInstruments(false);
         pushToast('Unable to load instruments right now.', 'error');
       }
     );
@@ -220,8 +265,7 @@ const MemberApp = ({ labName, userName, onLogout }) => {
   }, [labName, pushToast]);
 
   useEffect(() => {
-    setHasLoadedBookings(false);
-    setBookings([]);
+    setIsSyncingBookings(true);
     const bookingQuery = query(
       collection(db, 'artifacts', appId, 'public', 'data', 'bookings'),
       where('labName', '==', labName),
@@ -237,9 +281,11 @@ const MemberApp = ({ labName, userName, onLogout }) => {
           { changes: snapshot.docChanges().length }
         ));
         setHasLoadedBookings(true);
+        setIsSyncingBookings(false);
       },
       () => {
         setHasLoadedBookings(true);
+        setIsSyncingBookings(false);
         pushToast('Unable to load bookings right now.', 'error');
       }
     );
@@ -269,6 +315,20 @@ const MemberApp = ({ labName, userName, onLogout }) => {
       // Ignore storage errors in private mode / restricted environments.
     }
   }, [labName, userName, pinnedInstrumentIds, hasHydratedPinned]);
+
+  useEffect(() => {
+    if (!hasLoadedInstruments) return;
+    saveCachedPayload(instrumentCacheKey, { items: instruments });
+  }, [hasLoadedInstruments, instrumentCacheKey, instruments]);
+
+  useEffect(() => {
+    if (!hasLoadedBookings) return;
+    saveCachedPayload(bookingCacheKey, {
+      queryStart: bookingQueryRange.queryStart,
+      queryEnd: bookingQueryRange.queryEnd,
+      items: bookings
+    });
+  }, [hasLoadedBookings, bookingCacheKey, bookingQueryRange.queryStart, bookingQueryRange.queryEnd, bookings]);
 
   useEffect(() => {
     if (!hasLoadedInstruments || !hasHydratedPinned) return;
@@ -931,6 +991,9 @@ const MemberApp = ({ labName, userName, onLogout }) => {
                 </span>
                 <button type="button" aria-label={(viewMode === 'day' || !selectedInstrumentId) ? 'Go to next day' : 'Go to next week'} onClick={() => setDate(addDays(date, (viewMode === 'day' || !selectedInstrumentId) ? 1 : 7))} className="p-1 rounded-md text-slate-500 hover:text-slate-700 hover:bg-slate-200/70 ds-transition"><ChevronRight/></button>
              </div>
+             {(isSyncingInstruments || isSyncingBookings) && (hasLoadedInstruments || hasLoadedBookings) && (
+               <span className="text-[10px] text-slate-400 font-medium ml-1" aria-live="polite">Syncing...</span>
+             )}
           </div>
           {selectedInstrumentId && currentInst && (
              <div className="px-4 py-2 bg-slate-50/90 text-xs text-slate-500 flex items-center gap-2 border-b border-slate-200">

@@ -44,6 +44,7 @@ Current tests cover local-date handling and booking slot expansion rules.
 ## Data and Performance Notes
 - Member booking stream is scoped to a rolling date window around the current view, not full-history.
 - Booking writes/cancels are transaction-based and maintain per-slot aggregate docs for safer concurrency.
+- Member view uses a short-lived local warm-start cache (instruments/bookings) to reduce reopen latency.
 - Admin logs are read only for the recent 2 months in UI.
 - Long-term log retention cleanup should run on backend scheduler (Cloud Function/cron), not in client UI.
 - Optional profiling in development:
