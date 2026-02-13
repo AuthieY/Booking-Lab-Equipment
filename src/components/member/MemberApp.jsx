@@ -28,7 +28,7 @@ const REPEAT_LOOKAHEAD_DAYS = 24;
 const BOOKING_QUERY_BUFFER_DAYS = 14;
 const BOOKING_QUERY_GUARD_DAYS = 7;
 const BOOKING_AGGREGATE_COLLECTION = 'booking_slot_aggregates';
-const MEMBER_CACHE_TTL_MS = 1000 * 60 * 60; // 1 hour warm-start cache
+const MEMBER_CACHE_TTL_MS = 1000 * 60 * 60; // 1 hour warm-start cache for low-volatility data
 
 const loadCachedPayload = (cacheKey, maxAgeMs) => {
   try {
@@ -76,6 +76,7 @@ const MemberApp = ({ labName, userName, onLogout }) => {
   const [hasHydratedPinned, setHasHydratedPinned] = useState(false);
   const [hasLoadedInstruments, setHasLoadedInstruments] = useState(false);
   const [hasLoadedBookings, setHasLoadedBookings] = useState(false);
+  const [bookingRefreshToken, setBookingRefreshToken] = useState(0);
   const [isSyncingInstruments, setIsSyncingInstruments] = useState(false);
   const [isSyncingBookings, setIsSyncingBookings] = useState(false);
   const [showSelectionModal, setShowSelectionModal] = useState(false);
@@ -138,7 +139,6 @@ const MemberApp = ({ labName, userName, onLogout }) => {
     buildBookingQueryRange(visibleRange.startDate, visibleRange.endDate)
   );
   const instrumentCacheKey = useMemo(() => `booking_member_instruments:${labName}`, [labName]);
-  const bookingCacheKey = useMemo(() => `booking_member_bookings:${labName}`, [labName]);
 
   const formatHour = (hour) => `${String(hour).padStart(2, '0')}:00`;
   const getSlotKey = (dateStr, hour) => `${dateStr}|${hour}`;
@@ -334,13 +334,12 @@ const MemberApp = ({ labName, userName, onLogout }) => {
       setInstruments(cachedInstruments.items);
       setHasLoadedInstruments(true);
     }
-
-    const cachedBookings = loadCachedPayload(bookingCacheKey, MEMBER_CACHE_TTL_MS);
-    if (cachedBookings?.items && Array.isArray(cachedBookings.items)) {
-      setBookings(cachedBookings.items);
-      setHasLoadedBookings(true);
+    try {
+      localStorage.removeItem(`booking_member_bookings:${labName}`);
+    } catch {
+      // Ignore storage errors.
     }
-  }, [instrumentCacheKey, bookingCacheKey]);
+  }, [instrumentCacheKey, labName]);
 
   useEffect(() => {
     const hasOverviewSelection = !selectedInstrumentId && overviewInstrumentIds.length > 0;
@@ -369,6 +368,31 @@ const MemberApp = ({ labName, userName, onLogout }) => {
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [slotDetails.isOpen, bookingToDelete]);
+
+  useEffect(() => {
+    const requestBookingRefresh = () => {
+      if (!hasLoadedBookings) return;
+      setHasLoadedBookings(false);
+      setIsSyncingBookings(true);
+      setBookingRefreshToken((prev) => prev + 1);
+    };
+
+    const handlePageShow = () => {
+      requestBookingRefresh();
+    };
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState !== 'visible') return;
+      requestBookingRefresh();
+    };
+
+    window.addEventListener('pageshow', handlePageShow);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => {
+      window.removeEventListener('pageshow', handlePageShow);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, [hasLoadedBookings]);
 
   useEffect(() => {
     setIsSyncingInstruments(true);
@@ -422,7 +446,7 @@ const MemberApp = ({ labName, userName, onLogout }) => {
       }
     );
     return () => { unsubBook(); };
-  }, [labName, bookingQueryRange.queryEnd, bookingQueryRange.queryStart, pushToast]);
+  }, [labName, bookingQueryRange.queryEnd, bookingQueryRange.queryStart, pushToast, bookingRefreshToken]);
 
   useEffect(() => {
     setHasHydratedPinned(false);
@@ -452,15 +476,6 @@ const MemberApp = ({ labName, userName, onLogout }) => {
     if (!hasLoadedInstruments) return;
     saveCachedPayload(instrumentCacheKey, { items: instruments });
   }, [hasLoadedInstruments, instrumentCacheKey, instruments]);
-
-  useEffect(() => {
-    if (!hasLoadedBookings) return;
-    saveCachedPayload(bookingCacheKey, {
-      queryStart: bookingQueryRange.queryStart,
-      queryEnd: bookingQueryRange.queryEnd,
-      items: bookings
-    });
-  }, [hasLoadedBookings, bookingCacheKey, bookingQueryRange.queryStart, bookingQueryRange.queryEnd, bookings]);
 
   useEffect(() => {
     if (!hasLoadedInstruments || !hasHydratedPinned) return;
