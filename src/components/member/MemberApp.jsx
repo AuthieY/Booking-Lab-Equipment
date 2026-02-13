@@ -135,18 +135,76 @@ const MemberApp = ({ labName, userName, onLogout }) => {
   const formatHour = (hour) => `${String(hour).padStart(2, '0')}:00`;
   const getSlotKey = (dateStr, hour) => `${dateStr}|${hour}`;
   const getInstSlotKey = (instrumentId, dateStr, hour) => `${instrumentId}|${dateStr}|${hour}`;
+  const getBookingDocRef = (bookingId) => doc(db, 'artifacts', appId, 'public', 'data', 'bookings', bookingId);
   const activeAuthUid = auth.currentUser?.uid || null;
+  const normalizeUserLabel = useCallback((value) => String(value || '').trim().toLowerCase().replace(/\s+/g, ' '), []);
+  const isLegacyBatchOwnedByCurrentUser = useCallback((slots = []) => {
+    const groupIds = Array.from(new Set(slots.map((slot) => slot.bookingGroupId).filter(Boolean)));
+    if (groupIds.length !== 1) return false;
+    const currentUserNameNormalized = normalizeUserLabel(userName);
+    if (!currentUserNameNormalized) return false;
+
+    const hasConflictingNamedOwner = slots.some((slot) => {
+      const bookingUserNameNormalized = normalizeUserLabel(slot.userName);
+      return Boolean(bookingUserNameNormalized) && bookingUserNameNormalized !== currentUserNameNormalized;
+    });
+    if (hasConflictingNamedOwner) return false;
+
+    return slots.some((slot) => {
+      const ownerUid = typeof slot.authUid === 'string' && slot.authUid.length > 0 ? slot.authUid : null;
+      const bookingUserNameNormalized = normalizeUserLabel(slot.userName);
+      return !ownerUid && !bookingUserNameNormalized;
+    });
+  }, [normalizeUserLabel, userName]);
   const canCurrentUserDeleteBooking = useCallback((booking) => {
     if (!booking || typeof booking !== 'object') return false;
     const ownerUid = typeof booking.authUid === 'string' && booking.authUid.length > 0
       ? booking.authUid
       : null;
-    if (ownerUid) return Boolean(activeAuthUid) && ownerUid === activeAuthUid;
-    return booking.userName === userName;
-  }, [activeAuthUid, userName]);
+    const currentUserNameNormalized = normalizeUserLabel(userName);
+    const bookingUserNameNormalized = normalizeUserLabel(booking.userName);
+    const sameUserName = Boolean(currentUserNameNormalized) && bookingUserNameNormalized === currentUserNameNormalized;
+    const sameAuthUid = ownerUid ? (Boolean(activeAuthUid) && ownerUid === activeAuthUid) : false;
+    // Prefer identity name matching for stable ownership across anonymous-auth uid rotations.
+    return sameUserName || sameAuthUid;
+  }, [activeAuthUid, normalizeUserLabel, userName]);
   const pickCurrentUserBooking = useCallback((slots = []) => (
     slots.find((slot) => canCurrentUserDeleteBooking(slot)) || null
   ), [canCurrentUserDeleteBooking]);
+  const ownedBookingGroupIds = useMemo(() => {
+    const ids = new Set();
+    bookings.forEach((booking) => {
+      if (!canCurrentUserDeleteBooking(booking)) return;
+      if (!booking.bookingGroupId) return;
+      ids.add(booking.bookingGroupId);
+    });
+    return ids;
+  }, [bookings, canCurrentUserDeleteBooking]);
+  const slotBelongsToCurrentUser = useCallback((slots = []) => {
+    if (slots.some((slot) => canCurrentUserDeleteBooking(slot))) return true;
+    if (isLegacyBatchOwnedByCurrentUser(slots)) return true;
+    return slots.some((slot) => slot.bookingGroupId && ownedBookingGroupIds.has(slot.bookingGroupId));
+  }, [canCurrentUserDeleteBooking, isLegacyBatchOwnedByCurrentUser, ownedBookingGroupIds]);
+  const openCancelDialogForSlots = useCallback((slots = []) => {
+    let ownedBooking = pickCurrentUserBooking(slots);
+    if (!ownedBooking) {
+      const ownedGroupId = slots.find((slot) => slot.bookingGroupId && ownedBookingGroupIds.has(slot.bookingGroupId))?.bookingGroupId;
+      if (ownedGroupId) {
+        ownedBooking = bookings.find((booking) => booking.bookingGroupId === ownedGroupId && canCurrentUserDeleteBooking(booking)) || null;
+      }
+    }
+    if (!ownedBooking && isLegacyBatchOwnedByCurrentUser(slots)) {
+      const representative = slots.find((slot) => slot.bookingGroupId) || slots[0] || null;
+      if (representative) {
+        ownedBooking = { ...representative, __legacyOwnerAssumption: true };
+      }
+    }
+    if (!ownedBooking) {
+      pushToast('Unable to locate your booking in this slot. Refresh and try again.', 'warning');
+      return;
+    }
+    setBookingToDelete(ownedBooking);
+  }, [pickCurrentUserBooking, ownedBookingGroupIds, bookings, canCurrentUserDeleteBooking, isLegacyBatchOwnedByCurrentUser, pushToast]);
   // Booking lock policy:
   // Allow any slot in current week and future weeks.
   // Block only slots before the current week's Monday.
@@ -505,7 +563,7 @@ const MemberApp = ({ labName, userName, onLogout }) => {
       for (let hour = 0; hour < 24; hour += 1) {
         const slots = bookingsByInstrumentSlot.get(getInstSlotKey(instrumentId, selectedDateStr, hour)) || [];
         const totalUsed = slots.reduce((sum, booking) => sum + (Number(booking.requestedQuantity) || 1), 0);
-        const isMine = slots.some((slot) => canCurrentUserDeleteBooking(slot));
+        const isMine = slotBelongsToCurrentUser(slots);
         const primarySlot = getPrimarySlot(slots, userName);
         const overflowCount = getOverflowCount(slots);
         const blockHint = blockingHintsByInstrumentForDate[instrumentId]?.[hour];
@@ -516,7 +574,7 @@ const MemberApp = ({ labName, userName, onLogout }) => {
       map[instrumentId] = hourMap;
     });
     return map;
-  }, [dayMetricInstrumentIds, bookingsByInstrumentSlot, selectedDateStr, canCurrentUserDeleteBooking, blockingHintsByInstrumentForDate, currentWeekStartStr]);
+  }, [dayMetricInstrumentIds, bookingsByInstrumentSlot, selectedDateStr, slotBelongsToCurrentUser, blockingHintsByInstrumentForDate, currentWeekStartStr]);
 
   const weeklySlotMetrics = useMemo(() => {
     if (!currentInst || viewMode !== 'week') return new Map();
@@ -528,7 +586,7 @@ const MemberApp = ({ labName, userName, onLogout }) => {
       for (let hour = 0; hour < 24; hour += 1) {
         const slots = bookingsByInstrumentSlot.get(getInstSlotKey(currentInst.id, dateStr, hour)) || [];
         const totalUsed = slots.reduce((sum, booking) => sum + (Number(booking.requestedQuantity) || 1), 0);
-        const isMine = slots.some((slot) => canCurrentUserDeleteBooking(slot));
+        const isMine = slotBelongsToCurrentUser(slots);
         const primarySlot = getPrimarySlot(slots, userName);
         const overflowCount = getOverflowCount(slots);
         const blockHint = blockingHintsForDay[hour];
@@ -552,7 +610,7 @@ const MemberApp = ({ labName, userName, onLogout }) => {
     });
 
     return map;
-  }, [currentInst, viewMode, weekDays, bookingsByInstrumentSlot, canCurrentUserDeleteBooking, getBlockingHintsForDate, currentWeekStartStr]);
+  }, [currentInst, viewMode, weekDays, bookingsByInstrumentSlot, slotBelongsToCurrentUser, getBlockingHintsForDate, currentWeekStartStr]);
 
   const handleConfirmBooking = async (repeatCount, isFullDay, _subOption, isOvernight, isWorkingHours, requestedQty) => {
     if (!bookingModal.instrument) return;
@@ -775,16 +833,57 @@ const MemberApp = ({ labName, userName, onLogout }) => {
 
     try {
       if (bookingToDelete.bookingGroupId) {
-        // Query only by group id to avoid requiring a composite index for cancellation.
-        const groupQuery = query(
-          collection(db, 'artifacts', appId, 'public', 'data', 'bookings'),
-          where('bookingGroupId', '==', bookingToDelete.bookingGroupId)
-        );
-        const snapshot = await getDocs(groupQuery);
-        const targets = snapshot.docs
-          .filter((bookingDoc) => bookingDoc.data()?.labName === labName)
-          .filter((bookingDoc) => canCurrentUserDeleteBooking(bookingDoc.data()))
-          .map((bookingDoc) => ({ ref: bookingDoc.ref }));
+        // Prefer already-loaded bookings for batch cancellation to avoid query/index edge cases.
+        let targets = bookings
+          .filter((booking) => booking.bookingGroupId === bookingToDelete.bookingGroupId)
+          .filter((booking) => booking.labName === labName)
+          .filter((booking) => canCurrentUserDeleteBooking(booking))
+          .map((booking) => ({ ref: getBookingDocRef(booking.id) }));
+
+        if (targets.length === 0 && bookingToDelete.__legacyOwnerAssumption) {
+          targets = bookings
+            .filter((booking) => booking.bookingGroupId === bookingToDelete.bookingGroupId)
+            .filter((booking) => booking.labName === labName)
+            .filter((booking) => {
+              const bookingUserNameNormalized = normalizeUserLabel(booking.userName);
+              const currentUserNameNormalized = normalizeUserLabel(userName);
+              if (bookingUserNameNormalized && currentUserNameNormalized && bookingUserNameNormalized !== currentUserNameNormalized) return false;
+              const ownerUid = typeof booking.authUid === 'string' && booking.authUid.length > 0 ? booking.authUid : null;
+              if (ownerUid && activeAuthUid && ownerUid !== activeAuthUid) return false;
+              return true;
+            })
+            .map((booking) => ({ ref: getBookingDocRef(booking.id) }));
+        }
+
+        // Fallback: if cache window misses linked slots, fetch by bookingGroupId.
+        if (targets.length === 0) {
+          const groupQuery = query(
+            collection(db, 'artifacts', appId, 'public', 'data', 'bookings'),
+            where('bookingGroupId', '==', bookingToDelete.bookingGroupId)
+          );
+          const snapshot = await getDocs(groupQuery);
+          const fromOwnedIdentity = snapshot.docs
+            .filter((bookingDoc) => bookingDoc.data()?.labName === labName)
+            .filter((bookingDoc) => canCurrentUserDeleteBooking(bookingDoc.data()))
+            .map((bookingDoc) => ({ ref: bookingDoc.ref }));
+          targets = fromOwnedIdentity;
+
+          if (targets.length === 0 && bookingToDelete.__legacyOwnerAssumption) {
+            targets = snapshot.docs
+              .filter((bookingDoc) => bookingDoc.data()?.labName === labName)
+              .filter((bookingDoc) => {
+                const data = bookingDoc.data() || {};
+                const bookingUserNameNormalized = normalizeUserLabel(data.userName);
+                const currentUserNameNormalized = normalizeUserLabel(userName);
+                if (bookingUserNameNormalized && currentUserNameNormalized && bookingUserNameNormalized !== currentUserNameNormalized) return false;
+                const ownerUid = typeof data.authUid === 'string' && data.authUid.length > 0 ? data.authUid : null;
+                if (ownerUid && activeAuthUid && ownerUid !== activeAuthUid) return false;
+                return true;
+              })
+              .map((bookingDoc) => ({ ref: bookingDoc.ref }));
+          }
+        }
+
         const cancelledCount = await cancelBookingTargets(targets);
         if (cancelledCount === 0) {
           pushToast('No active slots found for this batch booking.', 'warning');
@@ -793,7 +892,7 @@ const MemberApp = ({ labName, userName, onLogout }) => {
           pushToast('Batch booking cancelled.', 'success');
         }
       } else {
-        const bookingRef = doc(db, 'artifacts', appId, 'public', 'data', 'bookings', bookingToDelete.id);
+        const bookingRef = getBookingDocRef(bookingToDelete.id);
         const cancelledCount = await cancelBookingTargets([{ ref: bookingRef }]);
         if (cancelledCount === 0) {
           pushToast('Booking already removed.', 'warning');
@@ -804,8 +903,12 @@ const MemberApp = ({ labName, userName, onLogout }) => {
       }
 
       setBookingToDelete(null);
-    } catch {
-      pushToast('Unable to cancel booking. Please try again.', 'error');
+    } catch (error) {
+      if (error?.code === 'permission-denied') {
+        pushToast('Cancellation was blocked by Firestore rules. Deploy updated rules and try again.', 'error');
+      } else {
+        pushToast('Unable to cancel booking. Please try again.', 'error');
+      }
     }
   };
 
@@ -1107,7 +1210,7 @@ const MemberApp = ({ labName, userName, onLogout }) => {
                          pushToast('Booking before current week is not allowed.', 'warning');
                          return;
                        }
-                       if (isMine) setBookingToDelete(pickCurrentUserBooking(slots));
+                       if (isMine) openCancelDialogForSlots(slots);
                        else if (isBlocked) return;
                        else if (totalUsed >= (inst.maxCapacity || 1)) pushToast("This slot is fully booked.", 'warning');
                        else setBookingModal({ isOpen: true, date: selectedDateStr, hour: h, instrument: inst });
@@ -1225,7 +1328,7 @@ const MemberApp = ({ labName, userName, onLogout }) => {
                     pushToast('Booking before current week is not allowed.', 'warning');
                     return;
                   }
-                  if (isMine) setBookingToDelete(pickCurrentUserBooking(slots));
+                  if (isMine) openCancelDialogForSlots(slots);
                   else if (isBlocked) return;
                   else if (totalUsed >= (currentInst.maxCapacity || 1)) pushToast("This slot is fully booked.", 'warning');
                   else setBookingModal({ isOpen: true, date: selectedDateStr, hour:h, instrument: currentInst });
@@ -1348,7 +1451,7 @@ const MemberApp = ({ labName, userName, onLogout }) => {
                           pushToast('Booking before current week is not allowed.', 'warning');
                           return;
                         }
-                        if (isMine) setBookingToDelete(pickCurrentUserBooking(slots));
+                        if (isMine) openCancelDialogForSlots(slots);
                         else if (isBlocked) return;
                         else if (totalUsed >= (currentInst.maxCapacity || 1)) pushToast("This slot is fully booked.", 'warning');
                         else setBookingModal({isOpen:true, date:dateStr, hour, instrument: currentInst});

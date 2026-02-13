@@ -204,11 +204,7 @@ service cloud.firestore {
       allow read: if isSignedIn();
       allow create: if isSignedIn() && validBookingDocument(request.resource.data);
       allow update: if false;
-      allow delete: if isSignedIn()
-        && (
-          resource.data.authUid == null
-          || resource.data.authUid == request.auth.uid
-        );
+      allow delete: if isSignedIn();
     }
 
     match /artifacts/{appId}/public/data/booking_slot_aggregates/{aggregateId} {
