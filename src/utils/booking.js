@@ -88,3 +88,36 @@ export const summarizeBlockingBookings = (blockingBookings = []) => {
     labelPrefix: `Conflict: ${instrumentsText} booked by ${usersText}`
   };
 };
+
+export const isValidBookingSlotRecord = (booking = {}) => {
+  if (!booking || typeof booking !== 'object') return false;
+  if (typeof booking.instrumentId !== 'string' || booking.instrumentId.trim() === '') return false;
+  if (typeof booking.date !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(booking.date)) return false;
+  return Number.isInteger(booking.hour) && booking.hour >= 0 && booking.hour <= 23;
+};
+
+export const buildCancellationDeltasBySlot = (bookings = []) => {
+  const deltas = new Map();
+  let malformedCount = 0;
+
+  bookings.forEach((booking) => {
+    if (!isValidBookingSlotRecord(booking)) {
+      malformedCount += 1;
+      return;
+    }
+
+    const key = `${booking.instrumentId}|${booking.date}|${booking.hour}`;
+    const current = deltas.get(key) || {
+      instrumentId: booking.instrumentId,
+      date: booking.date,
+      hour: booking.hour,
+      usedDelta: 0,
+      bookingDelta: 0
+    };
+    current.usedDelta += Math.max(1, Number(booking.requestedQuantity) || 1);
+    current.bookingDelta += 1;
+    deltas.set(key, current);
+  });
+
+  return { deltas, malformedCount };
+};

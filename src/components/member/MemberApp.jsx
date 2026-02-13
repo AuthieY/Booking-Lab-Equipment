@@ -13,7 +13,14 @@ import BookingModal from '../modals/BookingModal';
 import InstrumentSelectionModal from '../modals/InstrumentSelectionModal';
 import ToastStack from '../common/ToastStack';
 import { useToast } from '../../hooks/useToast';
-import { buildBookingSlots, summarizeBlockingBookings, sortSlotsForDisplay, getPrimarySlot, getOverflowCount } from '../../utils/booking';
+import {
+  buildBookingSlots,
+  summarizeBlockingBookings,
+  sortSlotsForDisplay,
+  getPrimarySlot,
+  getOverflowCount,
+  buildCancellationDeltasBySlot
+} from '../../utils/booking';
 import { applyDocChanges } from '../../utils/firestore';
 import { measurePerf, measurePerfAsync } from '../../utils/perf';
 
@@ -84,6 +91,7 @@ const MemberApp = ({ labName, userName, onLogout }) => {
     dateStr: '',
     hour: 0,
     slots: [],
+    ownedBooking: null,
     isBlocked: false,
     isPast: false,
     blockLabel: '',
@@ -185,26 +193,35 @@ const MemberApp = ({ labName, userName, onLogout }) => {
     if (isLegacyBatchOwnedByCurrentUser(slots)) return true;
     return slots.some((slot) => slot.bookingGroupId && ownedBookingGroupIds.has(slot.bookingGroupId));
   }, [canCurrentUserDeleteBooking, isLegacyBatchOwnedByCurrentUser, ownedBookingGroupIds]);
-  const openCancelDialogForSlots = useCallback((slots = []) => {
-    let ownedBooking = pickCurrentUserBooking(slots);
-    if (!ownedBooking) {
-      const ownedGroupId = slots.find((slot) => slot.bookingGroupId && ownedBookingGroupIds.has(slot.bookingGroupId))?.bookingGroupId;
-      if (ownedGroupId) {
-        ownedBooking = bookings.find((booking) => booking.bookingGroupId === ownedGroupId && canCurrentUserDeleteBooking(booking)) || null;
-      }
+  const resolveOwnedBookingForSlots = useCallback((slots = []) => {
+    const ownedBooking = pickCurrentUserBooking(slots);
+    if (ownedBooking) return ownedBooking;
+
+    const ownedGroupId = slots.find((slot) => slot.bookingGroupId && ownedBookingGroupIds.has(slot.bookingGroupId))?.bookingGroupId;
+    if (ownedGroupId) {
+      const ownedGroupBooking = bookings.find((booking) => (
+        booking.bookingGroupId === ownedGroupId
+        && booking.labName === labName
+        && canCurrentUserDeleteBooking(booking)
+      ));
+      if (ownedGroupBooking) return ownedGroupBooking;
+
+      return slots.find((slot) => slot.bookingGroupId === ownedGroupId) || null;
     }
-    if (!ownedBooking && isLegacyBatchOwnedByCurrentUser(slots)) {
-      const representative = slots.find((slot) => slot.bookingGroupId) || slots[0] || null;
-      if (representative) {
-        ownedBooking = { ...representative, __legacyOwnerAssumption: true };
-      }
+
+    if (isLegacyBatchOwnedByCurrentUser(slots)) {
+      return slots.find((slot) => slot.bookingGroupId) || slots[0] || null;
     }
-    if (!ownedBooking) {
-      pushToast('Unable to locate your booking in this slot. Refresh and try again.', 'warning');
-      return;
+
+    return null;
+  }, [pickCurrentUserBooking, ownedBookingGroupIds, bookings, labName, canCurrentUserDeleteBooking, isLegacyBatchOwnedByCurrentUser]);
+  const toCancelableBookingPayload = useCallback((booking, slots = []) => {
+    if (!booking) return null;
+    if (isLegacyBatchOwnedByCurrentUser(slots) && !canCurrentUserDeleteBooking(booking)) {
+      return { ...booking, __legacyOwnerAssumption: true };
     }
-    setBookingToDelete(ownedBooking);
-  }, [pickCurrentUserBooking, ownedBookingGroupIds, bookings, canCurrentUserDeleteBooking, isLegacyBatchOwnedByCurrentUser, pushToast]);
+    return booking;
+  }, [isLegacyBatchOwnedByCurrentUser, canCurrentUserDeleteBooking]);
   // Booking lock policy:
   // Allow any slot in current week and future weeks.
   // Block only slots before the current week's Monday.
@@ -219,25 +236,70 @@ const MemberApp = ({ labName, userName, onLogout }) => {
     `${rowHeightClass} border-b border-slate-200/80 px-1 py-0.5 transition-colors relative ${isPast ? 'bg-slate-100/80 cursor-not-allowed' : isBlocked ? 'bg-slate-200/45 cursor-not-allowed' : isMine ? 'bg-[#e6f3fb] border-l-2 border-[#1c7aa0] cursor-pointer' : totalUsed > 0 ? `${getHourBandClass(hour)} cursor-pointer` : `${getHourBandClass(hour)} hover:bg-slate-100/80 cursor-pointer`} ${isWorkingHour(hour) ? 'after:absolute after:inset-x-0 after:bottom-0 after:h-[1px] after:bg-emerald-200/45' : ''} ${isToday && hour === currentHour ? 'ring-1 ring-inset ring-[#52bdec]/70' : ''}`
   );
 
-  const openSlotDetails = ({ instrument, dateStr, hour, slots, isBlocked, isPast, blockLabel, totalUsed }) => {
+  const openSlotDetails = useCallback(({ instrument, dateStr, hour, slots, isBlocked, isPast, blockLabel, totalUsed }) => {
     const orderedSlots = sortSlotsForDisplay(slots, userName);
+    const ownedBooking = resolveOwnedBookingForSlots(slots);
     setSlotDetails({
       isOpen: true,
       instrument,
       dateStr,
       hour,
       slots: orderedSlots,
+      ownedBooking,
       isBlocked,
       isPast,
       blockLabel: blockLabel || '',
       totalUsed,
       canBook: !isPast && !isBlocked && totalUsed < (instrument?.maxCapacity || 1)
     });
-  };
+  }, [resolveOwnedBookingForSlots, userName]);
 
-  const closeSlotDetails = () => {
+  const closeSlotDetails = useCallback(() => {
     setSlotDetails((prev) => ({ ...prev, isOpen: false }));
-  };
+  }, []);
+
+  const openSlotInteraction = useCallback(({
+    instrument,
+    dateStr,
+    hour,
+    slots,
+    isBlocked,
+    isPast,
+    blockLabel,
+    totalUsed
+  }) => {
+    if (isPast) {
+      pushToast('Booking before current week is not allowed.', 'warning');
+      return;
+    }
+
+    const ownedBooking = resolveOwnedBookingForSlots(slots);
+    if (ownedBooking) {
+      const payload = toCancelableBookingPayload(ownedBooking, slots);
+      if (payload) {
+        setBookingToDelete(payload);
+        return;
+      }
+      pushToast('Unable to locate your booking in this slot. Refresh and try again.', 'warning');
+      return;
+    }
+
+    if ((slots?.length || 0) > 0 || isBlocked || totalUsed > 0) {
+      openSlotDetails({
+        instrument,
+        dateStr,
+        hour,
+        slots,
+        isBlocked,
+        isPast,
+        blockLabel: blockLabel || '',
+        totalUsed
+      });
+      return;
+    }
+
+    setBookingModal({ isOpen: true, date: dateStr, hour, instrument });
+  }, [openSlotDetails, pushToast, resolveOwnedBookingForSlots, toCancelableBookingPayload]);
 
   useEffect(() => {
     const requiredEnd = getFormattedDate(addDays(visibleRange.endDate, REPEAT_LOOKAHEAD_DAYS));
@@ -762,67 +824,84 @@ const MemberApp = ({ labName, userName, onLogout }) => {
     return measurePerfAsync(
       'member.booking.transaction.cancel',
       () => runTransaction(db, async (transaction) => {
-        const aggregateStateCache = new Map();
-        let cancelledCount = 0;
+        const uniqueRefsByPath = new Map();
+        targets.forEach((target) => {
+          if (!target?.ref?.path) return;
+          uniqueRefsByPath.set(target.ref.path, target.ref);
+        });
+        const bookingRefs = Array.from(uniqueRefsByPath.values());
+        if (bookingRefs.length === 0) return 0;
 
-        const getTransactionAggregateState = async (instrumentId, dateStr, hour) => {
-          const cacheKey = getInstSlotKey(instrumentId, dateStr, hour);
-          const cached = aggregateStateCache.get(cacheKey);
-          if (cached) return cached;
+        // Phase A: read all target booking docs first.
+        const bookingSnaps = await Promise.all(bookingRefs.map((bookingRef) => transaction.get(bookingRef)));
+        const existingBookings = bookingSnaps
+          .filter((bookingSnap) => bookingSnap.exists())
+          .map((bookingSnap) => ({ ref: bookingSnap.ref, booking: bookingSnap.data() || {} }));
+        if (existingBookings.length === 0) return 0;
 
-          const aggregateRef = getAggregateDocRef(instrumentId, dateStr, hour);
-          const aggregateSnap = await transaction.get(aggregateRef);
-          const fallbackState = getFallbackAggregateState(instrumentId, dateStr, hour);
+        // Phase B: compute aggregate deltas from valid booking records only.
+        const { deltas, malformedCount } = buildCancellationDeltasBySlot(
+          existingBookings.map(({ booking }) => booking)
+        );
+        if (malformedCount > 0) {
+          console.warn(`Skipped aggregate updates for ${malformedCount} malformed booking record(s) during cancellation.`);
+        }
+        const aggregateEntries = Array.from(deltas.values()).map((delta) => {
+          const aggregateRef = getAggregateDocRef(delta.instrumentId, delta.date, delta.hour);
+          return { delta, aggregateRef };
+        });
+
+        // Read all aggregate docs before any writes.
+        const aggregateSnaps = await Promise.all(
+          aggregateEntries.map(async ({ delta, aggregateRef }) => ({
+            delta,
+            aggregateRef,
+            snapshot: await transaction.get(aggregateRef)
+          }))
+        );
+
+        const aggregateNextStates = aggregateSnaps.map(({ delta, aggregateRef, snapshot }) => {
+          const fallbackState = getFallbackAggregateState(delta.instrumentId, delta.date, delta.hour);
           const normalized = normalizeAggregateState(
-            aggregateSnap.exists() ? aggregateSnap.data() : null,
+            snapshot.exists() ? snapshot.data() : null,
             fallbackState
           );
-          const state = {
-            ref: aggregateRef,
-            instrumentId,
-            date: dateStr,
-            hour,
-            usedQuantity: normalized.usedQuantity,
-            bookingCount: normalized.bookingCount
+          return {
+            aggregateRef,
+            instrumentId: delta.instrumentId,
+            date: delta.date,
+            hour: delta.hour,
+            usedQuantity: Math.max(0, normalized.usedQuantity - delta.usedDelta),
+            bookingCount: Math.max(0, normalized.bookingCount - delta.bookingDelta)
           };
-          aggregateStateCache.set(cacheKey, state);
-          return state;
-        };
+        });
 
-        for (const target of targets) {
-          if (!target?.ref) continue;
-          const bookingSnap = await transaction.get(target.ref);
-          if (!bookingSnap.exists()) continue;
+        // Phase C: write-only.
+        existingBookings.forEach(({ ref }) => {
+          transaction.delete(ref);
+        });
 
-          const booking = bookingSnap.data() || {};
-          const qty = Math.max(1, Number(booking.requestedQuantity) || 1);
-          const aggregateState = await getTransactionAggregateState(booking.instrumentId, booking.date, booking.hour);
-          aggregateState.usedQuantity = Math.max(0, aggregateState.usedQuantity - qty);
-          aggregateState.bookingCount = Math.max(0, aggregateState.bookingCount - 1);
-
-          if (aggregateState.bookingCount === 0 || aggregateState.usedQuantity === 0) {
-            transaction.delete(aggregateState.ref);
-          } else {
-            transaction.set(
-              aggregateState.ref,
-              {
-                labName,
-                instrumentId: booking.instrumentId,
-                date: booking.date,
-                hour: booking.hour,
-                usedQuantity: aggregateState.usedQuantity,
-                bookingCount: aggregateState.bookingCount,
-                updatedAt: serverTimestamp()
-              },
-              { merge: true }
-            );
+        aggregateNextStates.forEach((state) => {
+          if (state.bookingCount === 0 || state.usedQuantity === 0) {
+            transaction.delete(state.aggregateRef);
+            return;
           }
+          transaction.set(
+            state.aggregateRef,
+            {
+              labName,
+              instrumentId: state.instrumentId,
+              date: state.date,
+              hour: state.hour,
+              usedQuantity: state.usedQuantity,
+              bookingCount: state.bookingCount,
+              updatedAt: serverTimestamp()
+            },
+            { merge: true }
+          );
+        });
 
-          transaction.delete(bookingSnap.ref);
-          cancelledCount += 1;
-        }
-
-        return cancelledCount;
+        return existingBookings.length;
       }),
       { targets: targets.length }
     );
@@ -904,8 +983,19 @@ const MemberApp = ({ labName, userName, onLogout }) => {
 
       setBookingToDelete(null);
     } catch (error) {
+      console.error('Booking cancellation failed', {
+        code: error?.code || 'unknown',
+        message: error?.message || 'unknown',
+        bookingId: bookingToDelete?.id || null,
+        bookingGroupId: bookingToDelete?.bookingGroupId || null
+      }, error);
+
       if (error?.code === 'permission-denied') {
         pushToast('Cancellation was blocked by Firestore rules. Deploy updated rules and try again.', 'error');
+      } else if (error?.code === 'aborted') {
+        pushToast('Cancellation hit a temporary sync conflict. Please try again.', 'error');
+      } else if (error?.code === 'failed-precondition') {
+        pushToast('Cancellation requires a missing Firestore index or rules update.', 'error');
       } else {
         pushToast('Unable to cancel booking. Please try again.', 'error');
       }
@@ -1206,14 +1296,16 @@ const MemberApp = ({ labName, userName, onLogout }) => {
                      const isBlocked = Boolean(metric.isBlocked);
                      const isPast = Boolean(metric.isPast);
                      const handleActivateSlot = () => {
-                       if (isPast) {
-                         pushToast('Booking before current week is not allowed.', 'warning');
-                         return;
-                       }
-                       if (isMine) openCancelDialogForSlots(slots);
-                       else if (isBlocked) return;
-                       else if (totalUsed >= (inst.maxCapacity || 1)) pushToast("This slot is fully booked.", 'warning');
-                       else setBookingModal({ isOpen: true, date: selectedDateStr, hour: h, instrument: inst });
+                       openSlotInteraction({
+                         instrument: inst,
+                         dateStr: selectedDateStr,
+                         hour: h,
+                         slots,
+                         isBlocked,
+                         isPast,
+                         blockLabel: blockHint?.label || '',
+                         totalUsed
+                       });
                      };
                      const slotAriaLabel = getSlotAriaLabel({
                        instrumentName: inst.name,
@@ -1324,14 +1416,16 @@ const MemberApp = ({ labName, userName, onLogout }) => {
                 const isBlocked = Boolean(metric.isBlocked);
                 const isPast = Boolean(metric.isPast);
                 const handleActivateSlot = () => {
-                  if (isPast) {
-                    pushToast('Booking before current week is not allowed.', 'warning');
-                    return;
-                  }
-                  if (isMine) openCancelDialogForSlots(slots);
-                  else if (isBlocked) return;
-                  else if (totalUsed >= (currentInst.maxCapacity || 1)) pushToast("This slot is fully booked.", 'warning');
-                  else setBookingModal({ isOpen: true, date: selectedDateStr, hour:h, instrument: currentInst });
+                  openSlotInteraction({
+                    instrument: currentInst,
+                    dateStr: selectedDateStr,
+                    hour: h,
+                    slots,
+                    isBlocked,
+                    isPast,
+                    blockLabel: blockHint?.label || '',
+                    totalUsed
+                  });
                 };
                 const slotAriaLabel = getSlotAriaLabel({
                   instrumentName: currentInst?.name || 'Instrument',
@@ -1447,14 +1541,16 @@ const MemberApp = ({ labName, userName, onLogout }) => {
                       const isBlockStart = Boolean(metric.isBlockStart);
                       const isPast = Boolean(metric.isPast);
                       const handleActivateSlot = () => {
-                        if (isPast) {
-                          pushToast('Booking before current week is not allowed.', 'warning');
-                          return;
-                        }
-                        if (isMine) openCancelDialogForSlots(slots);
-                        else if (isBlocked) return;
-                        else if (totalUsed >= (currentInst.maxCapacity || 1)) pushToast("This slot is fully booked.", 'warning');
-                        else setBookingModal({isOpen:true, date:dateStr, hour, instrument: currentInst});
+                        openSlotInteraction({
+                          instrument: currentInst,
+                          dateStr,
+                          hour,
+                          slots,
+                          isBlocked,
+                          isPast,
+                          blockLabel,
+                          totalUsed
+                        });
                       };
                       const slotAriaLabel = getSlotAriaLabel({
                         instrumentName: currentInst?.name || 'Instrument',
@@ -1575,7 +1671,24 @@ const MemberApp = ({ labName, userName, onLogout }) => {
               <button type="button" onClick={closeSlotDetails} className="flex-1 py-2.5 ds-btn ds-btn-secondary">
                 Close
               </button>
-              {slotDetails.canBook && (
+              {slotDetails.ownedBooking && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    const payload = toCancelableBookingPayload(slotDetails.ownedBooking, slotDetails.slots);
+                    closeSlotDetails();
+                    if (payload) {
+                      setBookingToDelete(payload);
+                      return;
+                    }
+                    pushToast('Unable to locate your booking in this slot. Refresh and try again.', 'warning');
+                  }}
+                  className="flex-1 py-2.5 ds-btn bg-red-500 text-white"
+                >
+                  Cancel booking
+                </button>
+              )}
+              {!slotDetails.ownedBooking && slotDetails.canBook && (
                 <button
                   type="button"
                   onClick={() => {
