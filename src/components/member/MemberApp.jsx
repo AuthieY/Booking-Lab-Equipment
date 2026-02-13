@@ -135,6 +135,18 @@ const MemberApp = ({ labName, userName, onLogout }) => {
   const formatHour = (hour) => `${String(hour).padStart(2, '0')}:00`;
   const getSlotKey = (dateStr, hour) => `${dateStr}|${hour}`;
   const getInstSlotKey = (instrumentId, dateStr, hour) => `${instrumentId}|${dateStr}|${hour}`;
+  const activeAuthUid = auth.currentUser?.uid || null;
+  const canCurrentUserDeleteBooking = useCallback((booking) => {
+    if (!booking || typeof booking !== 'object') return false;
+    const ownerUid = typeof booking.authUid === 'string' && booking.authUid.length > 0
+      ? booking.authUid
+      : null;
+    if (ownerUid) return Boolean(activeAuthUid) && ownerUid === activeAuthUid;
+    return booking.userName === userName;
+  }, [activeAuthUid, userName]);
+  const pickCurrentUserBooking = useCallback((slots = []) => (
+    slots.find((slot) => canCurrentUserDeleteBooking(slot)) || null
+  ), [canCurrentUserDeleteBooking]);
   // Booking lock policy:
   // Allow any slot in current week and future weeks.
   // Block only slots before the current week's Monday.
@@ -493,7 +505,7 @@ const MemberApp = ({ labName, userName, onLogout }) => {
       for (let hour = 0; hour < 24; hour += 1) {
         const slots = bookingsByInstrumentSlot.get(getInstSlotKey(instrumentId, selectedDateStr, hour)) || [];
         const totalUsed = slots.reduce((sum, booking) => sum + (Number(booking.requestedQuantity) || 1), 0);
-        const isMine = slots.some((slot) => slot.userName === userName);
+        const isMine = slots.some((slot) => canCurrentUserDeleteBooking(slot));
         const primarySlot = getPrimarySlot(slots, userName);
         const overflowCount = getOverflowCount(slots);
         const blockHint = blockingHintsByInstrumentForDate[instrumentId]?.[hour];
@@ -504,7 +516,7 @@ const MemberApp = ({ labName, userName, onLogout }) => {
       map[instrumentId] = hourMap;
     });
     return map;
-  }, [dayMetricInstrumentIds, bookingsByInstrumentSlot, selectedDateStr, userName, blockingHintsByInstrumentForDate, currentWeekStartStr]);
+  }, [dayMetricInstrumentIds, bookingsByInstrumentSlot, selectedDateStr, canCurrentUserDeleteBooking, blockingHintsByInstrumentForDate, currentWeekStartStr]);
 
   const weeklySlotMetrics = useMemo(() => {
     if (!currentInst || viewMode !== 'week') return new Map();
@@ -516,7 +528,7 @@ const MemberApp = ({ labName, userName, onLogout }) => {
       for (let hour = 0; hour < 24; hour += 1) {
         const slots = bookingsByInstrumentSlot.get(getInstSlotKey(currentInst.id, dateStr, hour)) || [];
         const totalUsed = slots.reduce((sum, booking) => sum + (Number(booking.requestedQuantity) || 1), 0);
-        const isMine = slots.some((slot) => slot.userName === userName);
+        const isMine = slots.some((slot) => canCurrentUserDeleteBooking(slot));
         const primarySlot = getPrimarySlot(slots, userName);
         const overflowCount = getOverflowCount(slots);
         const blockHint = blockingHintsForDay[hour];
@@ -540,7 +552,7 @@ const MemberApp = ({ labName, userName, onLogout }) => {
     });
 
     return map;
-  }, [currentInst, viewMode, weekDays, bookingsByInstrumentSlot, userName, getBlockingHintsForDate, currentWeekStartStr]);
+  }, [currentInst, viewMode, weekDays, bookingsByInstrumentSlot, canCurrentUserDeleteBooking, getBlockingHintsForDate, currentWeekStartStr]);
 
   const handleConfirmBooking = async (repeatCount, isFullDay, _subOption, isOvernight, isWorkingHours, requestedQty) => {
     if (!bookingModal.instrument) return;
@@ -763,13 +775,16 @@ const MemberApp = ({ labName, userName, onLogout }) => {
 
     try {
       if (bookingToDelete.bookingGroupId) {
+        // Query only by group id to avoid requiring a composite index for cancellation.
         const groupQuery = query(
           collection(db, 'artifacts', appId, 'public', 'data', 'bookings'),
-          where('bookingGroupId', '==', bookingToDelete.bookingGroupId),
-          where('labName', '==', labName)
+          where('bookingGroupId', '==', bookingToDelete.bookingGroupId)
         );
         const snapshot = await getDocs(groupQuery);
-        const targets = snapshot.docs.map((bookingDoc) => ({ ref: bookingDoc.ref }));
+        const targets = snapshot.docs
+          .filter((bookingDoc) => bookingDoc.data()?.labName === labName)
+          .filter((bookingDoc) => canCurrentUserDeleteBooking(bookingDoc.data()))
+          .map((bookingDoc) => ({ ref: bookingDoc.ref }));
         const cancelledCount = await cancelBookingTargets(targets);
         if (cancelledCount === 0) {
           pushToast('No active slots found for this batch booking.', 'warning');
@@ -1092,7 +1107,7 @@ const MemberApp = ({ labName, userName, onLogout }) => {
                          pushToast('Booking before current week is not allowed.', 'warning');
                          return;
                        }
-                       if (isMine) setBookingToDelete(slots.find(s => s.userName === userName));
+                       if (isMine) setBookingToDelete(pickCurrentUserBooking(slots));
                        else if (isBlocked) return;
                        else if (totalUsed >= (inst.maxCapacity || 1)) pushToast("This slot is fully booked.", 'warning');
                        else setBookingModal({ isOpen: true, date: selectedDateStr, hour: h, instrument: inst });
@@ -1210,7 +1225,7 @@ const MemberApp = ({ labName, userName, onLogout }) => {
                     pushToast('Booking before current week is not allowed.', 'warning');
                     return;
                   }
-                  if (isMine) setBookingToDelete(slots.find(s=>s.userName===userName));
+                  if (isMine) setBookingToDelete(pickCurrentUserBooking(slots));
                   else if (isBlocked) return;
                   else if (totalUsed >= (currentInst.maxCapacity || 1)) pushToast("This slot is fully booked.", 'warning');
                   else setBookingModal({ isOpen: true, date: selectedDateStr, hour:h, instrument: currentInst });
@@ -1333,7 +1348,7 @@ const MemberApp = ({ labName, userName, onLogout }) => {
                           pushToast('Booking before current week is not allowed.', 'warning');
                           return;
                         }
-                        if (isMine) setBookingToDelete(slots.find(s=>s.userName===userName));
+                        if (isMine) setBookingToDelete(pickCurrentUserBooking(slots));
                         else if (isBlocked) return;
                         else if (totalUsed >= (currentInst.maxCapacity || 1)) pushToast("This slot is fully booked.", 'warning');
                         else setBookingModal({isOpen:true, date:dateStr, hour, instrument: currentInst});
