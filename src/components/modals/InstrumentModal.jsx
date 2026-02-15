@@ -54,7 +54,7 @@ const InstrumentModal = ({ isOpen, onClose, onSave, initialData, existingInstrum
 
   return (
     <div className="ds-overlay" role="presentation">
-      <div className="ds-modal ds-modal-md ds-section ds-animate-modal overflow-y-auto max-h-[90vh]" role="dialog" aria-modal="true" aria-labelledby="instrument-modal-title">
+      <div className="ds-modal ds-modal-md ds-modal-liquid ds-section ds-animate-modal overflow-y-auto max-h-[90vh]" role="dialog" aria-modal="true" aria-labelledby="instrument-modal-title">
         <h3 id="instrument-modal-title" className="text-lg font-bold mb-4 text-slate-800">{initialData ? 'Edit instrument' : 'Add instrument'}</h3>
         <form onSubmit={handleSubmit} className="space-y-4">
           <button
@@ -63,7 +63,7 @@ const InstrumentModal = ({ isOpen, onClose, onSave, initialData, existingInstrum
             aria-checked={isUnderMaintenance}
             aria-label="Toggle maintenance mode"
             onClick={() => setIsUnderMaintenance(!isUnderMaintenance)}
-            className={`w-full p-4 rounded-xl border-2 cursor-pointer transition-all flex items-center justify-between ${isUnderMaintenance ? 'border-orange-500 bg-orange-50' : 'border-slate-100 bg-slate-50'}`}
+            className={`w-full p-4 rounded-xl border cursor-pointer ds-transition flex items-center justify-between ds-glass-panel ${isUnderMaintenance ? 'border-orange-300/80 bg-orange-50/50' : 'border-white/50'}`}
           >
             <div className="flex items-center gap-3">
               <div className={`p-2 rounded-full ${isUnderMaintenance ? 'bg-orange-500 text-white' : 'bg-slate-200 text-slate-500'}`}><Wrench className="w-5 h-5"/></div>
@@ -90,7 +90,7 @@ const InstrumentModal = ({ isOpen, onClose, onSave, initialData, existingInstrum
 
           <div>
             <label className="ds-field-label flex items-center gap-1 mb-2"><Link2 className="w-3 h-3"/> Conflict instruments</label>
-            <div className="ds-card-muted p-3 max-h-32 overflow-y-auto space-y-1" role="group" aria-label="Conflict instruments">
+            <div className="ds-card-muted ds-glass-panel p-3 max-h-32 overflow-y-auto space-y-1" role="group" aria-label="Conflict instruments">
               {existingInstruments.filter(i => i.id !== (initialData?.id)).map(inst => (
                 <button key={inst.id} type="button" onClick={() => toggleConflict(inst.id)} aria-pressed={selectedConflicts.includes(inst.id)} className={`w-full flex items-center gap-2 p-2 rounded-lg cursor-pointer transition text-left ${selectedConflicts.includes(inst.id) ? 'bg-red-50 text-red-700 font-bold' : 'hover:bg-white text-slate-600'}`}>
                   <div className={`w-4 h-4 rounded border flex items-center justify-center ${selectedConflicts.includes(inst.id) ? 'border-red-500 bg-red-500' : 'border-slate-300'}`}>{selectedConflicts.includes(inst.id) && <CheckCircle2 className="w-3 h-3 text-white"/>}</div>
@@ -122,7 +122,7 @@ const InstrumentModal = ({ isOpen, onClose, onSave, initialData, existingInstrum
                 </button>
               ))}
             </div>
-            <div className="mt-2 p-2 ds-card-muted">
+            <div className="mt-2 p-2 ds-card-muted ds-glass-panel">
               <div className="text-[10px] text-slate-400 font-bold uppercase mb-1">Preview</div>
               <div className={`h-10 rounded-lg px-3 flex items-center text-white font-bold text-sm ${selectedTheme.darkBg}`}>
                 {selectedTheme.label}
@@ -151,7 +151,7 @@ const InstrumentModal = ({ isOpen, onClose, onSave, initialData, existingInstrum
             <div className="text-[11px] text-slate-500 mt-2">Selected: {selectedTheme.label || color}</div>
           </div>
           <div className="flex gap-3 mt-4">
-            <button type="button" onClick={onClose} className="flex-1 py-3 ds-btn ds-btn-secondary">Cancel</button>
+            <button type="button" onClick={onClose} className="flex-1 py-3 ds-btn ds-btn-secondary ds-btn-glass">Cancel</button>
             <button type="submit" className="flex-1 py-3 ds-btn ds-btn-primary text-white">Save</button>
           </div>
         </form>

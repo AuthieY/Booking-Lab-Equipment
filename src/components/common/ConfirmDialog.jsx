@@ -21,7 +21,7 @@ const ConfirmDialog = ({
   return (
     <div className="ds-overlay z-[100]" role="presentation">
       <div
-        className="ds-modal ds-modal-sm ds-section ds-animate-modal"
+        className="ds-modal ds-modal-sm ds-modal-liquid ds-section ds-animate-modal"
         role="dialog"
         aria-modal="true"
         aria-labelledby="confirm-dialog-title"
@@ -29,9 +29,9 @@ const ConfirmDialog = ({
         <h3 id="confirm-dialog-title" className="text-base font-bold text-slate-800">
           {title}
         </h3>
-        <p className="text-xs text-slate-500 mt-2">{message}</p>
+        <p className="text-xs text-slate-500 mt-2 ds-glass-panel rounded-lg px-2.5 py-2">{message}</p>
         <div className="mt-4 flex gap-2">
-          <button type="button" onClick={onCancel} className="flex-1 py-2.5 ds-btn ds-btn-secondary">
+          <button type="button" onClick={onCancel} className="flex-1 py-2.5 ds-btn ds-btn-secondary ds-btn-glass">
             {cancelLabel}
           </button>
           <button
