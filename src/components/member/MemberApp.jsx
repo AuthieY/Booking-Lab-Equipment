@@ -1234,14 +1234,15 @@ const MemberApp = ({ labName, userName, onLogout }) => {
                   <h1 className="font-black text-lg leading-tight text-[var(--ds-text-strong)] truncate">{labName}</h1>
                 </div>
                 <div className="mt-1.5 flex items-center gap-2 flex-wrap">
-                  <span className="ds-chip ds-chip-brand text-[11px] shrink-0">
-                    <ShieldCheck className="w-3 h-3" /> {userName}
+                  <span className="ds-chip ds-chip-brand text-[11px] font-semibold leading-none shrink-0 inline-flex items-center gap-1.5">
+                    <ShieldCheck className="w-3.5 h-3.5" />
+                    <span>{userName}</span>
                   </span>
                   <button
                     type="button"
                     onClick={() => setShowNoteModal(true)}
                     aria-label={currentInst ? `Report an issue for ${currentInst.name}` : 'Report an issue'}
-                    className="ds-fab-report px-2.5 py-1.5 text-[11px] rounded-full inline-flex items-center gap-1.5 shrink-0"
+                    className="ds-fab-report px-2.5 py-1.5 text-[11px] font-semibold leading-none rounded-full inline-flex items-center gap-1.5 shrink-0"
                   >
                     <StickyNote className="w-3.5 h-3.5" />
                     Report issue

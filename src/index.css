@@ -532,9 +532,6 @@ body {
   .ds-fab-report {
     position: relative;
     isolation: isolate;
-    font-size: 0.95rem;
-    font-weight: 650;
-    line-height: 1;
     color: #9a5800;
     border: 1px solid rgba(253, 224, 71, 0.48);
     background:
