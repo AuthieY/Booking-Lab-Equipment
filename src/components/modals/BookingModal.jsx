@@ -14,8 +14,9 @@ const BookingModal = ({ isOpen, onClose, initialHour, instrument, onConfirm, isB
   const isFullDay = bookingMode === 'full_day';
   const isOvernight = bookingMode === 'overnight';
   const isWorkingHours = bookingMode === 'working_hours';
+  const displayHour = String(Number.isFinite(Number(initialHour)) ? Number(initialHour) : 0).padStart(2, '0');
   const bookingModeOptions = [
-    { id: 'hourly', label: 'Hourly', detail: `Present hour ${initialHour}:00`, icon: Clock3 },
+    { id: 'hourly', label: 'Hourly', detail: `Present hour ${displayHour}:00`, icon: Clock3 },
     { id: 'working_hours', label: 'Working Hours', detail: '09:00-17:00', icon: Clock3 },
     { id: 'full_day', label: 'Full Day', detail: '00:00-24:00', icon: Sun },
     { id: 'overnight', label: 'Overnight', detail: '17:00-09:00', icon: Moon }
