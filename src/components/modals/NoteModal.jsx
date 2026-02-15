@@ -41,7 +41,7 @@ const NoteModal = ({ isOpen, onClose, instruments = [], initialInstrumentId = nu
                 aria-label="Select instrument for issue report"
                 value={selectedInstrumentId}
                 onChange={(e) => setSelectedInstrumentId(e.target.value)}
-                className="ds-input ds-glass-panel px-3 py-2 text-sm font-semibold text-[var(--ds-brand-700)]"
+                className="ds-input ds-glass-panel px-3 py-2 text-base font-semibold text-[var(--ds-brand-700)]"
               >
                 <option value="">Select instrument</option>
                 {sortedInstruments.map((inst) => (
@@ -50,7 +50,7 @@ const NoteModal = ({ isOpen, onClose, instruments = [], initialInstrumentId = nu
               </select>
             </div>
             <label htmlFor="note-message" className="ds-field-label">Message</label>
-            <textarea id="note-message" autoFocus value={msg} onChange={e=>setMsg(e.target.value)} className="ds-input ds-glass-panel h-32 p-3 text-sm resize-none mb-4 mt-1" placeholder="e.g. Needs cleaning..." />
+            <textarea id="note-message" value={msg} onChange={e=>setMsg(e.target.value)} className="ds-input ds-glass-panel h-32 p-3 text-base resize-none mb-4 mt-1" placeholder="e.g. Needs cleaning..." />
             <div className="flex gap-3">
               <button type="button" onClick={onClose} className="flex-1 py-3 ds-btn ds-btn-secondary ds-btn-glass">Cancel</button>
               <button
