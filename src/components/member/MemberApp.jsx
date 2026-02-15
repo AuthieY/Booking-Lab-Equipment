@@ -29,6 +29,7 @@ const BOOKING_QUERY_BUFFER_DAYS = 14;
 const BOOKING_QUERY_GUARD_DAYS = 7;
 const BOOKING_AGGREGATE_COLLECTION = 'booking_slot_aggregates';
 const MEMBER_CACHE_TTL_MS = 1000 * 60 * 60; // 1 hour warm-start cache for low-volatility data
+const DEFAULT_SCROLL_HOUR = 6;
 
 const loadCachedPayload = (cacheKey, maxAgeMs) => {
   try {
@@ -1335,7 +1336,7 @@ const MemberApp = ({ labName, userName, onLogout }) => {
             <div className="flex">
               <div className="w-14 md:w-16 bg-slate-50/95 backdrop-blur border-r sticky left-0 z-20">
                 {hours.map((h) => (
-                  <div key={h} ref={h === 8 ? scrollTargetRef : null} className={getTimeLabelClass(h)}>
+                  <div key={h} ref={h === DEFAULT_SCROLL_HOUR ? scrollTargetRef : null} className={getTimeLabelClass(h)}>
                     <span className={`${isWorkingHour(h) ? 'font-bold' : ''}`}>{h}:00</span>
                   </div>
                 ))}
@@ -1366,7 +1367,7 @@ const MemberApp = ({ labName, userName, onLogout }) => {
                  {hours.map(h => (
                    <div
                      key={h}
-                     ref={h === 8 ? scrollTargetRef : null}
+                     ref={h === DEFAULT_SCROLL_HOUR ? scrollTargetRef : null}
                      className={getTimeLabelClass(h)}
                    >
                      <span className={`${isWorkingHour(h) ? 'font-bold' : ''}`}>{h}:00</span>
@@ -1495,7 +1496,7 @@ const MemberApp = ({ labName, userName, onLogout }) => {
               <div className="flex min-w-max">
                 <div className="w-14 md:w-16 bg-slate-50/95 backdrop-blur border-r sticky left-0 z-20">
                   {hours.map(h => (
-                    <div key={h} ref={h === 8 ? scrollTargetRef : null} className={getTimeLabelClass(h)}>
+                    <div key={h} ref={h === DEFAULT_SCROLL_HOUR ? scrollTargetRef : null} className={getTimeLabelClass(h)}>
                       <span className={`${isWorkingHour(h) ? 'font-bold' : ''}`}>{h}:00</span>
                     </div>
                   ))}
@@ -1537,7 +1538,7 @@ const MemberApp = ({ labName, userName, onLogout }) => {
                   overflowCount
                 });
                 return (
-                  <div key={h} ref={h === 8 ? scrollTargetRef : null}
+                  <div key={h} ref={h === DEFAULT_SCROLL_HOUR ? scrollTargetRef : null}
                     onClick={handleActivateSlot}
                     onKeyDown={(event) => handleKeyboardActivation(event, handleActivateSlot)}
                     role="button"
@@ -1621,7 +1622,7 @@ const MemberApp = ({ labName, userName, onLogout }) => {
               <div>
                 {hours.map(hour => {
                   return (
-                  <div key={hour} ref={hour === 8 ? scrollTargetRef : null} className="grid grid-cols-[3.5rem_repeat(7,5.75rem)] md:grid-cols-[4rem_repeat(7,6rem)]">
+                  <div key={hour} ref={hour === DEFAULT_SCROLL_HOUR ? scrollTargetRef : null} className="grid grid-cols-[3.5rem_repeat(7,5.75rem)] md:grid-cols-[4rem_repeat(7,6rem)]">
                     <div className={getTimeLabelClass(hour)}>
                       <span className={`${isWorkingHour(hour) ? 'font-bold' : ''}`}>{hour}:00</span>
                     </div>
