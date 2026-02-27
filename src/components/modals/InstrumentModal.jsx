@@ -48,7 +48,7 @@ const InstrumentModal = ({ isOpen, onClose, onSave, initialData, existingInstrum
   const handleSubmit = (e) => { 
     e.preventDefault(); 
     if (!name.trim()) return; 
-    const subOptions = subOptionsStr.split(/[,，\n]/).map(s => s.trim()).filter(s => s);
+    const subOptions = Array.from(new Set(subOptionsStr.split(/[,，\n]/).map(s => s.trim()).filter(s => s)));
     onSave({ name, location, maxCapacity: Number(capacity), color, subOptions, conflicts: selectedConflicts, isUnderMaintenance }); 
   };
 
@@ -85,6 +85,21 @@ const InstrumentModal = ({ isOpen, onClose, onSave, initialData, existingInstrum
             <div>
               <label htmlFor="instrument-capacity" className="ds-field-label">Capacity</label>
               <input id="instrument-capacity" type="number" min="1" value={capacity} onChange={e=>setCapacity(e.target.value)} className="ds-input mt-1 p-3 font-data tabular-nums"/>
+            </div>
+          </div>
+
+          <div>
+            <label htmlFor="instrument-units" className="ds-field-label">Units (optional)</label>
+            <textarea
+              id="instrument-units"
+              value={subOptionsStr}
+              onChange={e => setSubOptionsStr(e.target.value)}
+              rows={2}
+              className="ds-input mt-1 p-3 resize-none"
+              placeholder="e.g. Hydro MV, Dry Unit"
+            />
+            <div className="text-[11px] text-slate-500 mt-1">
+              Store unit choices for bookings. Capacity and conflicts still apply to the instrument itself.
             </div>
           </div>
 

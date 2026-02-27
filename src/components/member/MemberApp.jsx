@@ -726,11 +726,12 @@ const MemberApp = ({ labName, userName, onLogout }) => {
     return map;
   }, [currentInst, viewMode, weekDays, bookingsByInstrumentSlot, slotBelongsToCurrentUser, getBlockingHintsForDate, currentWeekStartStr]);
 
-  const handleConfirmBooking = async (repeatCount, isFullDay, _subOption, isOvernight, isWorkingHours, requestedQty) => {
+  const handleConfirmBooking = async (repeatCount, isFullDay, selectedUnit, isOvernight, isWorkingHours, requestedQty) => {
     if (!bookingModal.instrument) return;
     setIsBookingProcess(true);
     const { date: startDateStr, hour: startHour, instrument } = bookingModal;
     const requestedQuantity = Math.max(1, Number(requestedQty) || 1);
+    const normalizedSelectedUnit = typeof selectedUnit === 'string' ? selectedUnit.trim() : '';
     const newSlots = buildBookingSlots({ startDateStr, startHour, repeatCount, isFullDay, isOvernight, isWorkingHours });
     const bookingToken = globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
     const bookingGroupId = (isFullDay || isOvernight || isWorkingHours || repeatCount > 0) ? `GRP-${bookingToken}` : null;
@@ -841,6 +842,7 @@ const MemberApp = ({ labName, userName, onLogout }) => {
               labName,
               instrumentId: instrument.id,
               instrumentName: instrument.name,
+              selectedUnit: normalizedSelectedUnit || null,
               date: slot.date,
               hour: slot.hour,
               userName,
@@ -854,10 +856,16 @@ const MemberApp = ({ labName, userName, onLogout }) => {
         {
           slots: newSlots.length,
           repeatCount,
-          mode: isWorkingHours ? 'working_hours' : isFullDay ? 'full_day' : isOvernight ? 'overnight' : 'hourly'
+          mode: isWorkingHours ? 'working_hours' : isFullDay ? 'full_day' : isOvernight ? 'overnight' : 'hourly',
+          hasUnit: Boolean(normalizedSelectedUnit)
         }
       );
-      await addAuditLog(labName, 'BOOKING', `Booked: ${instrument.name} (${requestedQuantity} qty)`, userName);
+      await addAuditLog(
+        labName,
+        'BOOKING',
+        `Booked: ${instrument.name}${normalizedSelectedUnit ? ` [${normalizedSelectedUnit}]` : ''} (${requestedQuantity} qty)`,
+        userName
+      );
       setBookingModal({ ...bookingModal, isOpen: false });
       pushToast('Booking confirmed.', 'success');
     } catch (error) {
@@ -1775,10 +1783,17 @@ const MemberApp = ({ labName, userName, onLogout }) => {
             <div className="mt-3 space-y-2 max-h-52 overflow-y-auto">
               {slotDetails.slots.length > 0 ? (
                 slotDetails.slots.map((slot, idx) => (
-                  <div key={`${slot.userName}-${idx}`} className="ds-card-muted ds-glass-row px-2.5 py-2 flex items-center justify-between">
-                    <span className={`text-xs ${slot.userName === userName ? 'text-[#00407a] font-bold' : 'text-slate-700'}`}>
-                      {slot.userName}
-                    </span>
+                  <div key={`${slot.userName}-${idx}`} className="ds-card-muted ds-glass-row px-2.5 py-2 flex items-center justify-between gap-2">
+                    <div className="min-w-0">
+                      <div className={`text-xs truncate ${slot.userName === userName ? 'text-[#00407a] font-bold' : 'text-slate-700'}`}>
+                        {slot.userName}
+                      </div>
+                      {slot.selectedUnit && (
+                        <div className="text-[10px] text-slate-400 truncate mt-0.5">
+                          {slot.selectedUnit}
+                        </div>
+                      )}
+                    </div>
                     <span className="text-[11px] text-slate-400 font-data tabular-nums">
                       {Number(slot.requestedQuantity) || 1} unit
                     </span>

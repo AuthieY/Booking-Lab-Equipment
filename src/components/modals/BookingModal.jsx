@@ -6,6 +6,7 @@ const BookingModal = ({ isOpen, onClose, initialHour, instrument, onConfirm, isB
   const [repeatOption, setRepeatOption] = useState(0); 
   const [bookingMode, setBookingMode] = useState('hourly');
   const [quantity, setQuantity] = useState('1');
+  const [selectedUnit, setSelectedUnit] = useState('');
   const [conflictPreview, setConflictPreview] = useState({ count: 0, first: '' });
   const [quantityLimit, setQuantityLimit] = useState(null);
 
@@ -15,6 +16,10 @@ const BookingModal = ({ isOpen, onClose, initialHour, instrument, onConfirm, isB
   const isOvernight = bookingMode === 'overnight';
   const isWorkingHours = bookingMode === 'working_hours';
   const displayHour = String(Number.isFinite(Number(initialHour)) ? Number(initialHour) : 0).padStart(2, '0');
+  const unitOptions = Array.from(
+    new Set((Array.isArray(instrument?.subOptions) ? instrument.subOptions : []).map((item) => String(item || '').trim()).filter(Boolean))
+  );
+  const requiresUnitSelection = unitOptions.length > 0;
   const bookingModeOptions = [
     { id: 'hourly', label: 'Hourly', detail: `Present hour ${displayHour}:00`, icon: Clock3 },
     { id: 'working_hours', label: 'Working Hours', detail: '09:00-17:00', icon: Clock3 },
@@ -64,9 +69,10 @@ const BookingModal = ({ isOpen, onClose, initialHour, instrument, onConfirm, isB
       setQuantity('1');
       setRepeatOption(0);
       setBookingMode('hourly');
+      setSelectedUnit(unitOptions[0] || '');
       setQuantityLimit(null);
     }
-  }, [instrument, isOpen]);
+  }, [instrument, isOpen, unitOptions]);
 
   useEffect(() => {
     if (!isOpen || !getQuantityLimit) {
@@ -129,6 +135,25 @@ const BookingModal = ({ isOpen, onClose, initialHour, instrument, onConfirm, isB
           <div className="ds-instrument-glass-card ds-instrument-glass-card-clean p-4 rounded-xl" style={{ '--ds-inst-accent': styles.accent }}>
             <div className={`text-lg font-bold ${styles.text}`}>{instrument?.name}</div>
           </div>
+
+          {requiresUnitSelection && (
+            <div className="ds-glass-panel p-4 rounded-xl">
+              <label htmlFor="booking-unit" className="text-[11px] font-bold text-slate-600 uppercase mb-2 tracking-wide block">
+                Unit
+              </label>
+              <select
+                id="booking-unit"
+                value={selectedUnit}
+                onChange={(event) => setSelectedUnit(event.target.value)}
+                className="ds-input p-3 text-base font-medium text-slate-700"
+              >
+                <option value="">Select unit</option>
+                {unitOptions.map((unit) => (
+                  <option key={unit} value={unit}>{unit}</option>
+                ))}
+              </select>
+            </div>
+          )}
 
           {maxCap > 1 && (
             <div className="ds-glass-panel p-4 rounded-xl">
@@ -211,7 +236,7 @@ const BookingModal = ({ isOpen, onClose, initialHour, instrument, onConfirm, isB
             </div>
           )}
 
-          <button type="button" onClick={() => onConfirm(repeatOption, isFullDay, null, isOvernight, isWorkingHours, effectiveQuantity)} disabled={isBooking || conflictPreview.count > 0 || !isQuantityValid} className={`w-full py-4 ds-btn text-white transition-all ${styles.darkBg} disabled:opacity-50`} aria-busy={isBooking}>
+          <button type="button" onClick={() => onConfirm(repeatOption, isFullDay, selectedUnit, isOvernight, isWorkingHours, effectiveQuantity)} disabled={isBooking || conflictPreview.count > 0 || !isQuantityValid || (requiresUnitSelection && !selectedUnit)} className={`w-full py-4 ds-btn text-white transition-all ${styles.darkBg} disabled:opacity-50`} aria-busy={isBooking}>
             {isBooking ? <Loader2 className="animate-spin w-5 h-5 mx-auto"/> : conflictPreview.count > 0 ? "Resolve conflicts" : "Confirm booking"}
           </button>
         </div>

@@ -329,6 +329,11 @@ const AdminDashboard = ({ labName, onLogout }) => {
                             <div>
                               <div className="font-bold text-slate-800 flex items-center gap-2">{inst.name} {inst.isUnderMaintenance && <span className="text-[9px] bg-orange-100 text-orange-600 px-1.5 py-0.5 rounded font-black uppercase">Maint</span>}</div>
                               <div className="text-xs text-slate-500 flex items-center gap-1"><MapPin className="w-3 h-3"/> {inst.location || 'No location'}</div>
+                              {Array.isArray(inst.subOptions) && inst.subOptions.length > 0 && (
+                                <div className="text-[11px] text-slate-400 mt-1">
+                                  Units: {inst.subOptions.join(', ')}
+                                </div>
+                              )}
                             </div>
                           </div>
                           <div className="flex gap-2">
