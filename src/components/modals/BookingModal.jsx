@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { X, Sun, Moon, Clock3, Repeat, Loader2, Beaker } from 'lucide-react';
 import { getColorStyle } from '../../utils/helpers';
 
@@ -16,9 +16,11 @@ const BookingModal = ({ isOpen, onClose, initialHour, instrument, onConfirm, isB
   const isOvernight = bookingMode === 'overnight';
   const isWorkingHours = bookingMode === 'working_hours';
   const displayHour = String(Number.isFinite(Number(initialHour)) ? Number(initialHour) : 0).padStart(2, '0');
-  const unitOptions = Array.from(
-    new Set((Array.isArray(instrument?.subOptions) ? instrument.subOptions : []).map((item) => String(item || '').trim()).filter(Boolean))
-  );
+  const unitOptions = useMemo(() => (
+    Array.from(
+      new Set((Array.isArray(instrument?.subOptions) ? instrument.subOptions : []).map((item) => String(item || '').trim()).filter(Boolean))
+    )
+  ), [instrument?.subOptions]);
   const requiresUnitSelection = unitOptions.length > 0;
   const bookingModeOptions = [
     { id: 'hourly', label: 'Hourly', detail: `Present hour ${displayHour}:00`, icon: Clock3 },
@@ -37,10 +39,14 @@ const BookingModal = ({ isOpen, onClose, initialHour, instrument, onConfirm, isB
     if (Number.isNaN(parsed)) return 1;
     return Math.min(dynamicUpperBound, Math.max(1, parsed));
   };
+  const parsedQuantity = quantity.trim() === '' ? Number.NaN : Number.parseInt(quantity, 10);
   const isQuantityRequired = maxCap > 1;
   const isQuantityDepleted = isQuantityRequired && dynamicUpperBound <= 0;
   const isQuantityMissing = isQuantityRequired && quantity.trim() === '';
-  const isQuantityValid = !isQuantityRequired || (!isQuantityMissing && !isQuantityDepleted);
+  const isQuantityOutOfRange = isQuantityRequired
+    && !isQuantityMissing
+    && (!Number.isFinite(parsedQuantity) || parsedQuantity < 1 || parsedQuantity > dynamicUpperBound);
+  const isQuantityValid = !isQuantityRequired || (!isQuantityMissing && !isQuantityDepleted && !isQuantityOutOfRange);
   const resolvedQuantity = normalizeQuantity(quantity);
   const effectiveQuantity = isQuantityRequired ? resolvedQuantity : 1;
   const handleQuantityChange = (event) => {
@@ -54,25 +60,26 @@ const BookingModal = ({ isOpen, onClose, initialHour, instrument, onConfirm, isB
       setQuantity('');
       return;
     }
-    setQuantity(String(Math.min(dynamicUpperBound, Number(rawValue))));
+    setQuantity(rawValue);
   };
   const handleQuantityBlur = () => {
     if (dynamicUpperBound <= 0) {
       setQuantity('');
       return;
     }
+    if (quantity.trim() === '') return;
     setQuantity(String(resolvedQuantity));
   };
 
   useEffect(() => { 
     if (isOpen) {
-      setQuantity('1');
+      setQuantity(isQuantityRequired ? '' : '1');
       setRepeatOption(0);
       setBookingMode('hourly');
       setSelectedUnit(unitOptions[0] || '');
       setQuantityLimit(null);
     }
-  }, [instrument, isOpen, unitOptions]);
+  }, [instrument, isOpen, unitOptions, isQuantityRequired]);
 
   useEffect(() => {
     if (!isOpen || !getQuantityLimit) {
@@ -99,13 +106,13 @@ const BookingModal = ({ isOpen, onClose, initialHour, instrument, onConfirm, isB
 
   useEffect(() => {
     if (!isOpen || !getConflictPreview) return;
-    if (isQuantityMissing || isQuantityDepleted) {
+    if (isQuantityMissing || isQuantityDepleted || isQuantityOutOfRange) {
       setConflictPreview({ count: 0, first: '' });
       return;
     }
     const preview = getConflictPreview({ repeatOption, isFullDay, isOvernight, isWorkingHours, quantity: effectiveQuantity });
     setConflictPreview(preview || { count: 0, first: '' });
-  }, [isOpen, repeatOption, bookingMode, effectiveQuantity, isQuantityMissing, isQuantityDepleted, getConflictPreview]);
+  }, [isOpen, repeatOption, bookingMode, effectiveQuantity, isQuantityMissing, isQuantityDepleted, isQuantityOutOfRange, getConflictPreview]);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -183,6 +190,11 @@ const BookingModal = ({ isOpen, onClose, initialHour, instrument, onConfirm, isB
               {isQuantityMissing && !isQuantityDepleted && (
                 <div className="mt-1 text-[11px] text-red-600" role="alert">
                   Quantity is required.
+                </div>
+              )}
+              {isQuantityOutOfRange && !isQuantityDepleted && (
+                <div className="mt-1 text-[11px] text-red-600" role="alert">
+                  Enter quantity between 1 and {dynamicUpperBound}.
                 </div>
               )}
             </div>
