@@ -105,6 +105,7 @@ service cloud.firestore {
         'hour',
         'userName',
         'authUid',
+        'selectedUnit',
         'requestedQuantity',
         'bookingGroupId',
         'createdAt'
@@ -117,6 +118,7 @@ service cloud.firestore {
       && data.hour >= 0
       && data.hour <= 23
       && isShortString(data.userName, 80)
+      && (!('selectedUnit' in data) || data.selectedUnit == null || isShortString(data.selectedUnit, 120))
       && data.requestedQuantity is int
       && data.requestedQuantity >= 1
       && data.requestedQuantity <= 1000
