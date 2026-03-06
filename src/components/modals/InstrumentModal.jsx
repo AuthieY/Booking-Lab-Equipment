@@ -63,7 +63,7 @@ const InstrumentModal = ({ isOpen, onClose, onSave, initialData, existingInstrum
             aria-checked={isUnderMaintenance}
             aria-label="Toggle maintenance mode"
             onClick={() => setIsUnderMaintenance(!isUnderMaintenance)}
-            className={`w-full p-4 rounded-xl border cursor-pointer ds-transition flex items-center justify-between ds-glass-panel ${isUnderMaintenance ? 'border-orange-300/80 bg-orange-50/50' : 'border-white/50'}`}
+            className={`w-full p-4 rounded-xl border cursor-pointer ds-transition flex items-center justify-between ds-glass-panel ${isUnderMaintenance ? 'border-orange-300/80 bg-orange-50/70' : ''}`}
           >
             <div className="flex items-center gap-3">
               <div className={`p-2 rounded-full ${isUnderMaintenance ? 'bg-orange-500 text-white' : 'bg-slate-200 text-slate-500'}`}><Wrench className="w-5 h-5"/></div>

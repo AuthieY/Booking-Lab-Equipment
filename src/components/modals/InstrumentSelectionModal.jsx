@@ -122,7 +122,7 @@ const InstrumentSelectionModal = ({
                   tabIndex={0}
                   aria-pressed={isSelected}
                   aria-label={`${isSelected ? 'Deselect' : 'Select'} ${inst.name}${isPinned ? ', pinned' : ''}${inst.isUnderMaintenance ? ', under maintenance' : ''}`}
-                  className={`p-2.5 rounded-xl border text-left flex flex-col items-start cursor-pointer ds-transition min-h-[7.15rem] ${isSelected ? 'border-[var(--ds-brand-300)] ring-2 ring-[#cdeefe] bg-white/80' : 'ds-glass-panel border-white/50'}`}
+                  className={`p-2.5 rounded-xl border text-left flex flex-col items-start cursor-pointer ds-transition min-h-[7.15rem] ${isSelected ? 'border-[var(--ds-brand-300)] ring-2 ring-[#cdeefe] bg-[var(--ds-brand-100)]' : 'ds-glass-panel'}`}
                 >
                   <div className="w-full flex items-center justify-end mb-1">
                     <div className="flex items-center gap-1.5">

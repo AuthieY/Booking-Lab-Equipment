@@ -1179,7 +1179,7 @@ const MemberApp = ({ labName, userName, onLogout }) => {
 
   return (
     <div className="flex flex-col h-screen ds-page font-sans text-slate-900 overflow-hidden text-sm ds-animate-enter-fast">
-      <div className={`flex-none z-50 bg-white/92 backdrop-blur border-b border-[var(--ds-border)] ds-topbar-shell ${hasCalendarScrolled ? 'ds-topbar-scrolled' : ''}`}>
+      <div className={`flex-none z-50 bg-white border-b border-[var(--ds-border)] ds-topbar-shell ${hasCalendarScrolled ? 'ds-topbar-scrolled' : ''}`}>
           <header className="px-4 pt-3 pb-2 border-b border-slate-200/60">
             <div className="flex items-start justify-between gap-3">
               <div className="min-w-0">
@@ -1288,7 +1288,7 @@ const MemberApp = ({ labName, userName, onLogout }) => {
         {!isCalendarLoading && !selectedInstrumentId && overviewInstruments.length === 0 && (
           <div className="border-y border-slate-200/80 bg-white">
             <div className="flex">
-              <div className="w-14 md:w-16 bg-slate-50/95 backdrop-blur border-r sticky left-0 z-20">
+              <div className="w-14 md:w-16 bg-slate-50 border-r sticky left-0 z-20">
                 {hours.map((h) => (
                   <div key={h} ref={h === DEFAULT_SCROLL_HOUR ? scrollTargetRef : null} className={getTimeLabelClass(h)}>
                     <span className={`${isWorkingHour(h) ? 'font-bold' : ''}`}>{h}:00</span>
@@ -1316,7 +1316,7 @@ const MemberApp = ({ labName, userName, onLogout }) => {
 
         {!isCalendarLoading && !selectedInstrumentId && overviewInstruments.length > 0 && (
            <div className="flex min-w-max border-y border-slate-200/80 bg-white">
-               <div className="w-14 md:w-16 bg-slate-50/95 backdrop-blur border-r sticky left-0 z-20">
+               <div className="w-14 md:w-16 bg-slate-50 border-r sticky left-0 z-20">
                 <div className="h-9 md:h-10 border-b border-slate-200/65 bg-slate-100/90"></div>
                  {hours.map(h => (
                    <div
@@ -1448,7 +1448,7 @@ const MemberApp = ({ labName, userName, onLogout }) => {
         {!isCalendarLoading && selectedInstrumentId && viewMode === 'day' && (
             <div className="border-y border-slate-200/80 bg-white">
               <div className="flex min-w-max">
-                <div className="w-14 md:w-16 bg-slate-50/95 backdrop-blur border-r sticky left-0 z-20">
+                <div className="w-14 md:w-16 bg-slate-50 border-r sticky left-0 z-20">
                   {hours.map(h => (
                     <div key={h} ref={h === DEFAULT_SCROLL_HOUR ? scrollTargetRef : null} className={getTimeLabelClass(h)}>
                       <span className={`${isWorkingHour(h) ? 'font-bold' : ''}`}>{h}:00</span>
@@ -1692,7 +1692,7 @@ const MemberApp = ({ labName, userName, onLogout }) => {
               aria-label="Open overview and instrument selection"
               className={`pointer-events-auto ds-fab-overview rounded-full px-4 py-2.5 inline-flex items-center gap-2.5 ${isLaunchingSelectionFromFab ? 'ds-fab-overview-launch' : ''}`}
             >
-              <span className="w-5 h-5 rounded-full bg-[rgba(232,245,251,0.34)] border border-[rgba(140,203,232,0.56)] inline-flex items-center justify-center flex-shrink-0">
+              <span className="w-5 h-5 rounded-full bg-[var(--ds-brand-100)] border border-[var(--ds-brand-300)] inline-flex items-center justify-center flex-shrink-0">
                 <CircleDot className="w-3.5 h-3.5 text-[#1c7aa0]" />
               </span>
               <span className="text-[13px] font-bold tracking-[0.01em]">Select instruments</span>
