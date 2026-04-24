@@ -688,12 +688,13 @@ const MemberApp = ({ labName, userName, onLogout }) => {
     return map;
   }, [currentInst, viewMode, weekDays, bookingsByInstrumentSlot, slotBelongsToCurrentUser, getBlockingHintsForDate, currentWeekStartStr]);
 
-  const handleConfirmBooking = async (repeatCount, isFullDay, selectedUnit, isOvernight, isWorkingHours, requestedQty) => {
+  const handleConfirmBooking = async (repeatCount, isFullDay, selectedUnit, isOvernight, isWorkingHours, requestedQty, bookingComment) => {
     if (!bookingModal.instrument) return;
     setIsBookingProcess(true);
     const { date: startDateStr, hour: startHour, instrument } = bookingModal;
     const requestedQuantity = Math.max(1, Number(requestedQty) || 1);
     const normalizedSelectedUnit = typeof selectedUnit === 'string' ? selectedUnit.trim() : '';
+    const normalizedBookingComment = typeof bookingComment === 'string' ? bookingComment.trim() : '';
     const newSlots = buildBookingSlots({ startDateStr, startHour, repeatCount, isFullDay, isOvernight, isWorkingHours });
     const bookingToken = globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
     const bookingGroupId = (isFullDay || isOvernight || isWorkingHours || repeatCount > 0) ? `GRP-${bookingToken}` : null;
@@ -810,6 +811,7 @@ const MemberApp = ({ labName, userName, onLogout }) => {
               userName,
               authUid: auth.currentUser?.uid || null,
               requestedQuantity,
+              bookingComment: normalizedBookingComment || null,
               bookingGroupId,
               createdAt: serverTimestamp()
             });
@@ -819,7 +821,8 @@ const MemberApp = ({ labName, userName, onLogout }) => {
           slots: newSlots.length,
           repeatCount,
           mode: isWorkingHours ? 'working_hours' : isFullDay ? 'full_day' : isOvernight ? 'overnight' : 'hourly',
-          hasUnit: Boolean(normalizedSelectedUnit)
+          hasUnit: Boolean(normalizedSelectedUnit),
+          hasComment: Boolean(normalizedBookingComment)
         }
       );
       await addAuditLog(
@@ -1736,6 +1739,11 @@ const MemberApp = ({ labName, userName, onLogout }) => {
                       {slot.selectedUnit && (
                         <div className="text-[10px] text-slate-400 truncate mt-0.5">
                           {slot.selectedUnit}
+                        </div>
+                      )}
+                      {slot.bookingComment && (
+                        <div className="text-[10px] text-slate-500 whitespace-pre-wrap break-words mt-1 leading-relaxed">
+                          {slot.bookingComment}
                         </div>
                       )}
                     </div>

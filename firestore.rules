@@ -107,6 +107,7 @@ service cloud.firestore {
         'authUid',
         'selectedUnit',
         'requestedQuantity',
+        'bookingComment',
         'bookingGroupId',
         'createdAt'
       ])
@@ -122,6 +123,7 @@ service cloud.firestore {
       && data.requestedQuantity is int
       && data.requestedQuantity >= 1
       && data.requestedQuantity <= 1000
+      && (!('bookingComment' in data) || data.bookingComment == null || isOptionalString(data.bookingComment, 500))
       && (data.authUid == null || (data.authUid is string && data.authUid == request.auth.uid))
       && (data.bookingGroupId == null || (data.bookingGroupId is string && data.bookingGroupId.size() <= 96))
       && data.createdAt is timestamp;

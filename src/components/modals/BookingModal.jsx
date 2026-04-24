@@ -7,6 +7,7 @@ const BookingModal = ({ isOpen, onClose, initialHour, instrument, onConfirm, isB
   const [bookingMode, setBookingMode] = useState('hourly');
   const [quantity, setQuantity] = useState('1');
   const [selectedUnit, setSelectedUnit] = useState('');
+  const [bookingComment, setBookingComment] = useState('');
   const [conflictPreview, setConflictPreview] = useState({ count: 0, first: '' });
   const [quantityLimit, setQuantityLimit] = useState(null);
 
@@ -77,6 +78,7 @@ const BookingModal = ({ isOpen, onClose, initialHour, instrument, onConfirm, isB
       setRepeatOption(0);
       setBookingMode('hourly');
       setSelectedUnit(unitOptions[0] || '');
+      setBookingComment('');
       setQuantityLimit(null);
     }
   }, [instrument, isOpen, unitOptions, isQuantityRequired]);
@@ -201,6 +203,24 @@ const BookingModal = ({ isOpen, onClose, initialHour, instrument, onConfirm, isB
           )}
 
           <div className="ds-glass-panel p-4 rounded-xl">
+            <label htmlFor="booking-comment" className="text-[11px] font-bold text-slate-600 uppercase mb-2 tracking-wide block">
+              Comment (optional)
+            </label>
+            <textarea
+              id="booking-comment"
+              value={bookingComment}
+              onChange={(event) => setBookingComment(event.target.value)}
+              rows={3}
+              maxLength={500}
+              placeholder="Add any special note for others..."
+              className="ds-input p-3 text-sm resize-none"
+            />
+            <div className="mt-1 text-[11px] text-slate-500 text-right font-data tabular-nums">
+              {bookingComment.length}/500
+            </div>
+          </div>
+
+          <div className="ds-glass-panel p-4 rounded-xl">
             <div className="text-[11px] font-bold text-slate-600 uppercase mb-2 tracking-wide">Booking mode</div>
             <div className="grid grid-cols-2 gap-2" role="radiogroup" aria-label="Booking mode">
               {bookingModeOptions.map((mode) => {
@@ -248,7 +268,7 @@ const BookingModal = ({ isOpen, onClose, initialHour, instrument, onConfirm, isB
             </div>
           )}
 
-          <button type="button" onClick={() => onConfirm(repeatOption, isFullDay, selectedUnit, isOvernight, isWorkingHours, effectiveQuantity)} disabled={isBooking || conflictPreview.count > 0 || !isQuantityValid || (requiresUnitSelection && !selectedUnit)} className={`w-full py-4 ds-btn text-white transition-all ${styles.darkBg} disabled:opacity-50`} aria-busy={isBooking}>
+          <button type="button" onClick={() => onConfirm(repeatOption, isFullDay, selectedUnit, isOvernight, isWorkingHours, effectiveQuantity, bookingComment)} disabled={isBooking || conflictPreview.count > 0 || !isQuantityValid || (requiresUnitSelection && !selectedUnit)} className={`w-full py-4 ds-btn text-white transition-all ${styles.darkBg} disabled:opacity-50`} aria-busy={isBooking}>
             {isBooking ? <Loader2 className="animate-spin w-5 h-5 mx-auto"/> : conflictPreview.count > 0 ? "Resolve conflicts" : "Confirm booking"}
           </button>
         </div>
