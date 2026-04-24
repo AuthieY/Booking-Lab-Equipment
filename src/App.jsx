@@ -1,5 +1,5 @@
 import React, { useState, useEffect, lazy, Suspense } from 'react';
-import { signInAnonymously, onAuthStateChanged } from 'firebase/auth';
+import { signInAnonymously, onAuthStateChanged, signOut } from 'firebase/auth';
 import { Loader2 } from 'lucide-react';
 
 // --- 1. Core Config ---
@@ -43,7 +43,7 @@ export default function App() {
   // --- Session Persistence Logic (30 Days) ---
   useEffect(() => {
     let isActive = true;
-    let attemptedAnonymousSignIn = false;
+    let isSigningInAnonymously = false;
 
     const handleInitError = (error, phase) => {
       reportClientError({
@@ -55,6 +55,21 @@ export default function App() {
       if (!isActive) return;
       setInitError('Unable to initialize secure session. Please check Firebase Authentication settings and try again.');
       setIsInitializing(false);
+    };
+
+    const ensureAnonymousSession = async () => {
+      if (isSigningInAnonymously) return;
+      isSigningInAnonymously = true;
+      if (!isActive) return;
+      setInitError('');
+      setIsInitializing(true);
+      try {
+        await signInAnonymously(auth);
+        // Success path is handled by the next onAuthStateChanged callback.
+      } catch (error) {
+        isSigningInAnonymously = false;
+        handleInitError(error, 'signInAnonymously');
+      }
     };
 
     // Restore local session immediately to preselect route while auth hydrates.
@@ -89,19 +104,11 @@ export default function App() {
         setUser(authUser);
 
         if (authUser) {
+          isSigningInAnonymously = false;
           setIsInitializing(false);
           return;
         }
-
-        if (attemptedAnonymousSignIn) return;
-        attemptedAnonymousSignIn = true;
-
-        try {
-          await signInAnonymously(auth);
-          // Success path is handled by the next onAuthStateChanged callback.
-        } catch (error) {
-          handleInitError(error, 'signInAnonymously');
-        }
+        await ensureAnonymousSession();
       },
       (error) => {
         handleInitError(error, 'onAuthStateChanged');
@@ -180,10 +187,23 @@ export default function App() {
   };
 
   // --- Logout (Clear everything) ---
-  const logout = () => {
+  const logout = async () => {
     localStorage.removeItem('lab_session'); // Wipe local storage
     setAppData({ role: null, labName: null, userName: null });
     setIdentityStage(false);
+    setInitError('');
+    setIsInitializing(true);
+    try {
+      await signOut(auth);
+    } catch (error) {
+      reportClientError({
+        source: 'app-logout',
+        error,
+        stack: error?.stack || ''
+      });
+      setInitError('Unable to reset session. Please refresh and try again.');
+      setIsInitializing(false);
+    }
   };
 
   // --- Rendering Logic ---
