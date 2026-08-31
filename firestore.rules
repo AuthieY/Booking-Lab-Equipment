@@ -208,9 +208,11 @@ service cloud.firestore {
       allow read: if isSignedIn();
       allow create: if isSignedIn() && validBookingDocument(request.resource.data);
       allow update: if false;
-      allow delete: if isSignedIn()
-        && resource.data.authUid is string
-        && resource.data.authUid == request.auth.uid;
+      // Identity is app-level (labName + userName); anonymous auth uids change
+      // whenever browser storage is cleared, so a uid match here permanently
+      // orphaned bookings. Ownership is enforced client-side, matching the
+      // trust level of instruments/notes/aggregates deletes below.
+      allow delete: if isSignedIn();
     }
 
     match /artifacts/{appId}/public/data/booking_slot_aggregates/{aggregateId} {

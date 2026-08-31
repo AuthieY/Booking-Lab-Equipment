@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { 
-  collection, query, where, onSnapshot, addDoc, deleteDoc, updateDoc, doc, serverTimestamp, orderBy, limit, Timestamp
+import {
+  collection, query, where, onSnapshot, addDoc, deleteDoc, updateDoc, doc, serverTimestamp, orderBy, limit, Timestamp,
+  getDocs, writeBatch, arrayRemove
 } from 'firebase/firestore';
 import { 
   ShieldCheck, LogOut, Settings, Book, History, Plus, Pencil, Trash2, MapPin, Wrench, MessageSquare, ChevronDown, ChevronRight
@@ -145,10 +146,39 @@ const AdminDashboard = ({ labName, onLogout }) => {
 
   const confirmDeleteInstrument = async () => {
     if (!instrumentToDelete) return;
+    const { id, name } = instrumentToDelete;
     try {
-      await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'instruments', instrumentToDelete.id));
-      await addAuditLog(labName, 'DEL_INST', `Deleted instrument: ${instrumentToDelete.name}`, 'Admin');
-      pushToast(`Deleted ${instrumentToDelete.name}.`, 'success');
+      // Collect everything that references the instrument (doc ids are unique,
+      // so instrumentId alone is enough to scope each query).
+      const [bookingSnap, aggregateSnap, noteSnap] = await Promise.all([
+        getDocs(query(collection(db, 'artifacts', appId, 'public', 'data', 'bookings'), where('instrumentId', '==', id))),
+        getDocs(query(collection(db, 'artifacts', appId, 'public', 'data', 'booking_slot_aggregates'), where('instrumentId', '==', id))),
+        getDocs(query(collection(db, 'artifacts', appId, 'public', 'data', 'notes'), where('instrumentId', '==', id)))
+      ]);
+      const refsToDelete = [
+        ...bookingSnap.docs.map((snap) => snap.ref),
+        ...aggregateSnap.docs.map((snap) => snap.ref),
+        ...noteSnap.docs.map((snap) => snap.ref)
+      ];
+      const conflictRefs = instruments
+        .filter((inst) => inst.id !== id && Array.isArray(inst.conflicts) && inst.conflicts.includes(id))
+        .map((inst) => doc(db, 'artifacts', appId, 'public', 'data', 'instruments', inst.id));
+
+      // Referencing docs go first so no commit ever removes the instrument
+      // while its bookings still exist (batches cap at 500 writes).
+      const BATCH_WRITE_LIMIT = 500;
+      for (let start = 0; start < refsToDelete.length; start += BATCH_WRITE_LIMIT) {
+        const batch = writeBatch(db);
+        refsToDelete.slice(start, start + BATCH_WRITE_LIMIT).forEach((ref) => batch.delete(ref));
+        await batch.commit();
+      }
+      const finalBatch = writeBatch(db);
+      conflictRefs.forEach((ref) => finalBatch.update(ref, { conflicts: arrayRemove(id) }));
+      finalBatch.delete(doc(db, 'artifacts', appId, 'public', 'data', 'instruments', id));
+      await finalBatch.commit();
+
+      await addAuditLog(labName, 'DEL_INST', `Deleted instrument: ${name} (removed ${bookingSnap.size} bookings, ${noteSnap.size} reports)`, 'Admin');
+      pushToast(`Deleted ${name} and its bookings.`, 'success');
     } catch {
       pushToast('Unable to delete instrument. Please try again.', 'error');
     } finally {
@@ -199,6 +229,21 @@ const AdminDashboard = ({ labName, onLogout }) => {
     },
     { noteCount: notes.length }
   ), [notes]);
+
+  // Reports left behind by instruments deleted before cascade cleanup existed.
+  const orphanedNoteGroups = useMemo(() => {
+    const knownIds = new Set(instruments.map((inst) => inst.id));
+    const groups = [];
+    Object.entries(notesByInstrument).forEach(([instrumentId, instrumentNotes]) => {
+      if (knownIds.has(instrumentId)) return;
+      groups.push({
+        instrumentId,
+        instrumentName: instrumentNotes[0]?.instrumentName || 'Removed instrument',
+        notes: instrumentNotes
+      });
+    });
+    return groups;
+  }, [instruments, notesByInstrument]);
 
   const logsByMonth = useMemo(() => measurePerf(
     'admin.logs.groupByMonth',
@@ -417,6 +462,48 @@ const AdminDashboard = ({ labName, onLogout }) => {
                         );
                     })}
 
+                    {hasLoadedInstruments && hasLoadedNotes && orphanedNoteGroups.map((group) => {
+                        const isOpen = Boolean(openedInstrumentNotes[group.instrumentId]);
+                        const isExpanded = Boolean(expandedNotesByInstrument[group.instrumentId]);
+                        const visibleNotes = isExpanded ? group.notes : [group.notes[0]];
+                        const hiddenCount = group.notes.length - 1;
+                        return (
+                            <div key={group.instrumentId} className="ds-card p-4 border-l-4 rounded-2xl" style={{ borderLeftColor: '#94a3b8' }}>
+                                <button type="button" aria-expanded={isOpen} aria-label={`${isOpen ? 'Collapse' : 'Expand'} reports for ${group.instrumentName}`} onClick={() => toggleInstrumentPanel(group.instrumentId)} className="w-full flex items-center justify-between gap-3 text-left">
+                                  <div className="flex items-center gap-3">
+                                    <div className="p-1.5 rounded-lg bg-slate-100 text-slate-500"><MessageSquare className="w-4 h-4"/></div>
+                                    <div>
+                                        <h3 className="font-bold text-slate-500 flex items-center gap-2">{group.instrumentName} <span className="text-[9px] bg-slate-100 text-slate-500 px-1.5 py-0.5 rounded font-black uppercase">Removed</span></h3>
+                                        <p className="text-[10px] text-slate-400 uppercase tracking-widest">{group.notes.length} Reports</p>
+                                    </div>
+                                  </div>
+                                  <span className="text-xs font-bold text-slate-500">{isOpen ? 'Hide' : 'Open'}</span>
+                                </button>
+                                {isOpen && (
+                                <div className="space-y-2 mt-3">
+                                    {visibleNotes.map(note => (
+                                        <div key={note.id} className="bg-slate-50 p-2.5 rounded-xl border border-slate-100 relative group transition-all hover:bg-white">
+                                            <div className="flex justify-between items-start mb-1.5">
+                                                <div className="flex items-center gap-2">
+                                                    <span className="font-bold text-xs text-slate-700">{note.userName}</span>
+                                                    <span className="text-[10px] bg-white px-2 py-0.5 rounded-full border border-slate-200 text-slate-400 font-data tabular-nums">{formatTime(note.timestamp)}</span>
+                                                </div>
+                                                <button type="button" aria-label={`Delete note by ${note.userName}`} onClick={() => handleDeleteNote(note)} className="text-slate-300 hover:text-red-500 transition opacity-0 group-hover:opacity-100"><Trash2 className="w-4 h-4"/></button>
+                                            </div>
+                                            <p className="text-slate-600 text-xs leading-relaxed whitespace-pre-wrap">{note.message}</p>
+                                        </div>
+                                    ))}
+                                    {group.notes.length > 1 && (
+                                      <button type="button" aria-expanded={isExpanded} onClick={() => toggleInstrumentNotes(group.instrumentId)} className="text-xs font-bold text-blue-600 hover:text-blue-700">
+                                        {isExpanded ? 'Show less' : `See ${hiddenCount} more`}
+                                      </button>
+                                    )}
+                                </div>
+                                )}
+                            </div>
+                        );
+                    })}
+
                     {hasLoadedInstruments && hasLoadedNotes && notes.length === 0 && (
                         <div className="ds-card p-6 text-center">
                             <div className="bg-slate-100 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4"><Book className="w-8 h-8 text-slate-300"/></div>
@@ -541,7 +628,7 @@ const AdminDashboard = ({ labName, onLogout }) => {
         <ConfirmDialog
           isOpen={Boolean(instrumentToDelete)}
           title="Delete instrument?"
-          message={instrumentToDelete ? `This will remove "${instrumentToDelete.name}" from the lab.` : ''}
+          message={instrumentToDelete ? `This will remove "${instrumentToDelete.name}" from the lab, including all of its bookings and reports.` : ''}
           confirmLabel="Delete"
           tone="danger"
           onCancel={() => setInstrumentToDelete(null)}

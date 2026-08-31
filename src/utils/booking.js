@@ -1,4 +1,4 @@
-import { addDaysLocal, formatLocalDate, parseLocalDate } from './date';
+import { addDaysLocal, formatLocalDate, parseLocalDate } from './date.js';
 
 /**
  * Keep current user first, then alphabetic order.
@@ -87,6 +87,21 @@ export const summarizeBlockingBookings = (blockingBookings = []) => {
     signature: `${instrumentsText}||${usersText}`,
     labelPrefix: `Conflict: ${instrumentsText} booked by ${usersText}`
   };
+};
+
+/**
+ * Ownership follows the lab identity (userName), which survives cleared
+ * browser storage; the anonymous auth uid only backs up records missing a name.
+ */
+export const isBookingOwnedByUser = (booking, { userName, authUid } = {}) => {
+  if (!booking || typeof booking !== 'object') return false;
+  if (typeof booking.userName === 'string' && booking.userName.length > 0) {
+    return Boolean(userName) && booking.userName === userName;
+  }
+  return typeof booking.authUid === 'string'
+    && booking.authUid.length > 0
+    && Boolean(authUid)
+    && booking.authUid === authUid;
 };
 
 export const isValidBookingSlotRecord = (booking = {}) => {

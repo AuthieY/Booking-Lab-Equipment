@@ -19,7 +19,8 @@ import {
   sortSlotsForDisplay,
   getPrimarySlot,
   getOverflowCount,
-  buildCancellationDeltasBySlot
+  buildCancellationDeltasBySlot,
+  isBookingOwnedByUser
 } from '../../utils/booking';
 import { applyDocChanges } from '../../utils/firestore';
 import { measurePerf, measurePerfAsync } from '../../utils/perf';
@@ -150,13 +151,9 @@ const MemberApp = ({ labName, userName, onLogout }) => {
   const getInstSlotKey = (instrumentId, dateStr, hour) => `${instrumentId}|${dateStr}|${hour}`;
   const getBookingDocRef = (bookingId) => doc(db, 'artifacts', appId, 'public', 'data', 'bookings', bookingId);
   const activeAuthUid = auth.currentUser?.uid || null;
-  const canCurrentUserDeleteBooking = useCallback((booking) => {
-    if (!booking || typeof booking !== 'object') return false;
-    const ownerUid = typeof booking.authUid === 'string' && booking.authUid.length > 0
-      ? booking.authUid
-      : null;
-    return ownerUid ? (Boolean(activeAuthUid) && ownerUid === activeAuthUid) : false;
-  }, [activeAuthUid]);
+  const canCurrentUserDeleteBooking = useCallback((booking) => (
+    isBookingOwnedByUser(booking, { userName, authUid: activeAuthUid })
+  ), [userName, activeAuthUid]);
   const pickCurrentUserBooking = useCallback((slots = []) => (
     slots.find((slot) => canCurrentUserDeleteBooking(slot)) || null
   ), [canCurrentUserDeleteBooking]);

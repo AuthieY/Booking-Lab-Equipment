@@ -4,7 +4,8 @@ import {
   buildBookingSlots,
   summarizeBlockingBookings,
   isValidBookingSlotRecord,
-  buildCancellationDeltasBySlot
+  buildCancellationDeltasBySlot,
+  isBookingOwnedByUser
 } from '../src/utils/booking.js';
 
 test('buildBookingSlots creates working-hours set', () => {
@@ -73,6 +74,26 @@ test('buildCancellationDeltasBySlot skips malformed records but keeps valid delt
   assert.equal(malformedCount, 3);
   assert.equal(deltas.size, 1);
   assert.equal(deltas.get('inst-a|2026-02-11|10').usedDelta, 2);
+});
+
+test('isBookingOwnedByUser matches on userName regardless of auth uid', () => {
+  const booking = { userName: 'Yadong Li', authUid: 'old-uid' };
+  assert.equal(isBookingOwnedByUser(booking, { userName: 'Yadong Li', authUid: 'new-uid' }), true);
+  assert.equal(isBookingOwnedByUser(booking, { userName: 'Yadong Li', authUid: null }), true);
+  assert.equal(isBookingOwnedByUser(booking, { userName: 'Someone Else', authUid: 'old-uid' }), false);
+});
+
+test('isBookingOwnedByUser falls back to auth uid only when userName is missing', () => {
+  assert.equal(isBookingOwnedByUser({ authUid: 'uid-1' }, { userName: 'Yadong Li', authUid: 'uid-1' }), true);
+  assert.equal(isBookingOwnedByUser({ authUid: 'uid-1' }, { userName: 'Yadong Li', authUid: 'uid-2' }), false);
+  assert.equal(isBookingOwnedByUser({ authUid: null }, { userName: 'Yadong Li', authUid: 'uid-1' }), false);
+});
+
+test('isBookingOwnedByUser rejects empty identities and malformed records', () => {
+  assert.equal(isBookingOwnedByUser({ userName: 'Yadong Li' }, { userName: '', authUid: 'uid-1' }), false);
+  assert.equal(isBookingOwnedByUser({ userName: 'Yadong Li' }, {}), false);
+  assert.equal(isBookingOwnedByUser(null, { userName: 'Yadong Li', authUid: 'uid-1' }), false);
+  assert.equal(isBookingOwnedByUser('not-an-object', { userName: 'Yadong Li', authUid: 'uid-1' }), false);
 });
 
 test('isValidBookingSlotRecord validates instrument/date/hour basics', () => {
