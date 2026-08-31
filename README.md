@@ -36,10 +36,33 @@ npm test
 ```
 Current tests cover local-date handling and booking slot expansion rules.
 
-## Security Notes
-- Lab/member credentials are now stored as hashed credential records (PBKDF2-SHA256) instead of plaintext.
-- Legacy plaintext credentials are auto-migrated to hashed format after a successful login.
-- You still need strict Firestore security rules for production.
+## Security Model
+Authorization is enforced by Firestore security rules via proof-of-password memberships:
+- Passwords never leave the browser. Logging in derives a PBKDF2-SHA256 proof and writes a
+  `memberships/{labName__uid}` doc; rules accept it only if the proof matches the lab's
+  secret in `lab_secrets` / `lab_user_secrets` — collections no client can ever read
+  (this is what prevents offline brute-force).
+- Every read and write of lab data (instruments, bookings, aggregates, notes, logs) requires
+  a membership in that lab; instrument management and report/booking cleanup require the
+  ADMIN role; bookings, notes, and logs must carry the membership's verified `userName`.
+- Legacy labs and lab users (readable credential records) are migrated automatically on
+  first login: rules force every migrated value to be derived from the stored records, so
+  the migration cannot be abused to inject attacker-controlled secrets.
+- The rules are covered by an emulator test suite: `npm run test:rules` (requires Java for
+  the Firestore emulator; firebase-tools 13.x runs on Java 11).
+
+### Deploying the rules
+```bash
+firebase deploy --only firestore
+```
+Notes for the switchover:
+- Existing signed-in sessions become invalid once the rules deploy; the app detects the
+  permission error and returns users to the sign-in gate. Signing in again migrates each
+  lab/user to the new format automatically.
+- Labs or lab users still on plaintext pins (never signed in since hashed credentials
+  shipped) cannot auto-migrate: have each role sign in once BEFORE deploying, or recreate
+  the lab / have an admin delete the lab user afterwards.
+- Lab names cannot contain `/` (they are embedded in membership doc ids).
 
 ## Data and Performance Notes
 - Member booking stream is scoped to a rolling date window around the current view, not full-history.

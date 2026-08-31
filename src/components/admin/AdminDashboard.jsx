@@ -59,8 +59,13 @@ const AdminDashboard = ({ labName, onLogout }) => {
         ));
         setHasLoadedInstruments(true);
       },
-      () => {
+      (error) => {
         setHasLoadedInstruments(true);
+        if (error?.code === 'permission-denied') {
+          pushToast('Your session is no longer valid. Please sign in again.', 'warning');
+          onLogout();
+          return;
+        }
         pushToast('Unable to load instruments.', 'error');
       }
     );
@@ -89,8 +94,9 @@ const AdminDashboard = ({ labName, onLogout }) => {
         });
         setHasLoadedLogs(true);
       },
-      () => {
+      (error) => {
         setHasLoadedLogs(true);
+        if (error?.code === 'permission-denied') return;
         pushToast('Unable to load logs.', 'error');
       }
     );
@@ -111,14 +117,15 @@ const AdminDashboard = ({ labName, onLogout }) => {
           });
           setHasLoadedNotes(true);
       },
-      () => {
+      (error) => {
         setHasLoadedNotes(true);
+        if (error?.code === 'permission-denied') return;
         pushToast('Unable to load reports.', 'error');
       }
     );
 
     return () => { unsubInst(); unsubLogs(); unsubNotes(); };
-  }, [labName, pushToast]);
+  }, [labName, pushToast, onLogout]);
 
   // Handle instrument save (includes maintenance and conflict settings).
   const handleSaveInstrument = async (data) => {

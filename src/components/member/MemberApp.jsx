@@ -394,14 +394,19 @@ const MemberApp = ({ labName, userName, onLogout }) => {
         setHasLoadedInstruments(true);
         setIsSyncingInstruments(false);
       },
-      () => {
+      (error) => {
         setHasLoadedInstruments(true);
         setIsSyncingInstruments(false);
+        if (error?.code === 'permission-denied') {
+          pushToast('Your session is no longer valid. Please sign in again.', 'warning');
+          onLogout();
+          return;
+        }
         pushToast('Unable to load instruments right now.', 'error');
       }
     );
     return () => { unsubInst(); };
-  }, [labName, pushToast]);
+  }, [labName, pushToast, onLogout]);
 
   useEffect(() => {
     setIsSyncingBookings(true);
@@ -422,14 +427,19 @@ const MemberApp = ({ labName, userName, onLogout }) => {
         setHasLoadedBookings(true);
         setIsSyncingBookings(false);
       },
-      () => {
+      (error) => {
         setHasLoadedBookings(true);
         setIsSyncingBookings(false);
+        if (error?.code === 'permission-denied') {
+          pushToast('Your session is no longer valid. Please sign in again.', 'warning');
+          onLogout();
+          return;
+        }
         pushToast('Unable to load bookings right now.', 'error');
       }
     );
     return () => { unsubBook(); };
-  }, [labName, bookingQueryRange.queryEnd, bookingQueryRange.queryStart, pushToast, bookingRefreshToken]);
+  }, [labName, bookingQueryRange.queryEnd, bookingQueryRange.queryStart, pushToast, bookingRefreshToken, onLogout]);
 
   useEffect(() => {
     setHasHydratedPinned(false);
@@ -681,6 +691,11 @@ const MemberApp = ({ labName, userName, onLogout }) => {
 
   const handleConfirmBooking = async (repeatCount, isFullDay, selectedUnit, isOvernight, isWorkingHours, requestedQty, bookingComment) => {
     if (!bookingModal.instrument) return;
+    // Rules require authUid to match the signed-in uid on every booking.
+    if (!auth.currentUser?.uid) {
+      pushToast('Secure session unavailable. Please refresh and try again.', 'error');
+      return;
+    }
     setIsBookingProcess(true);
     const { date: startDateStr, hour: startHour, instrument } = bookingModal;
     const requestedQuantity = Math.max(1, Number(requestedQty) || 1);
@@ -800,7 +815,7 @@ const MemberApp = ({ labName, userName, onLogout }) => {
               date: slot.date,
               hour: slot.hour,
               userName,
-              authUid: auth.currentUser?.uid || null,
+              authUid: auth.currentUser.uid,
               requestedQuantity,
               bookingComment: normalizedBookingComment || null,
               bookingGroupId,
@@ -944,10 +959,12 @@ const MemberApp = ({ labName, userName, onLogout }) => {
           .map((booking) => ({ ref: getBookingDocRef(booking.id) }));
 
         // Fallback: if cache window misses linked slots, fetch by bookingGroupId.
+        // The labName clause keeps the query provable under the security rules.
         if (targets.length === 0) {
           const groupQuery = query(
             collection(db, 'artifacts', appId, 'public', 'data', 'bookings'),
-            where('bookingGroupId', '==', bookingToDelete.bookingGroupId)
+            where('bookingGroupId', '==', bookingToDelete.bookingGroupId),
+            where('labName', '==', labName)
           );
           const snapshot = await getDocs(groupQuery);
           const fromOwnedIdentity = snapshot.docs

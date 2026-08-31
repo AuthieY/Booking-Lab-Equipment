@@ -1,8 +1,6 @@
 import React, { useState } from 'react';
-import { collection, query, where, getDocs, addDoc, serverTimestamp, updateDoc, doc, deleteField } from 'firebase/firestore';
 import { Loader2 } from 'lucide-react';
-import { db, appId } from '../../api/firebase';
-import { createCredentialRecord, verifyCredentialRecord } from '../../utils/security';
+import { verifyMemberIdentity } from '../../api/membership';
 
 const IdentityScreen = ({ labName, onIdentityVerified }) => {
   const [name, setName] = useState('');
@@ -24,47 +22,14 @@ const IdentityScreen = ({ labName, onIdentityVerified }) => {
     setError('');
 
     try {
-      const usersRef = collection(db, 'artifacts', appId, 'public', 'data', 'lab_users');
-      const lookup = query(usersRef, where('labName', '==', labName), where('userName', '==', normalizedName));
-      const snapshot = await getDocs(lookup);
-
-      if (snapshot.empty) {
-        const credential = await createCredentialRecord(normalizedPassword);
-        await addDoc(usersRef, {
-          labName,
-          userName: normalizedName,
-          credential,
-          createdAt: serverTimestamp()
-        });
-        onIdentityVerified(normalizedName);
-        return;
-      }
-
-      const userDoc = snapshot.docs[0];
-      const userData = userDoc.data();
-      let isValid = false;
-
-      if (userData.credential) {
-        isValid = await verifyCredentialRecord(normalizedPassword, userData.credential);
-      } else if (typeof userData.pinCode === 'string') {
-        isValid = userData.pinCode === normalizedPassword;
-        if (isValid) {
-          const upgradedCredential = await createCredentialRecord(normalizedPassword);
-          await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'lab_users', userDoc.id), {
-            credential: upgradedCredential,
-            pinCode: deleteField()
-          });
-        }
-      }
-
-      if (!isValid) {
-        setError('Incorrect password.');
-        return;
-      }
-
+      await verifyMemberIdentity({
+        labName,
+        userName: normalizedName,
+        password: normalizedPassword
+      });
       onIdentityVerified(normalizedName);
-    } catch {
-      setError('Unable to verify identity.');
+    } catch (err) {
+      setError(err?.isAuthMessage ? err.message : 'Unable to verify identity.');
     } finally {
       setLoading(false);
     }

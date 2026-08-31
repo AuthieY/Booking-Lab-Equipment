@@ -17,221 +17,536 @@ service cloud.firestore {
       return value is string && value.matches('^\\d{4}-\\d{2}-\\d{2}$');
     }
 
+    function isSaltString(value) {
+      return value is string && value.size() >= 16 && value.size() <= 128;
+    }
+
+    function isIterationCount(value) {
+      return value is int && value >= 100000 && value <= 500000;
+    }
+
+    // base64 PBKDF2 output (44 chars for 256-bit keys).
+    function isProofString(value) {
+      return value is string && value.size() >= 32 && value.size() <= 256;
+    }
+
+    // Membership doc ids embed the lab name, so names cannot contain '/'
+    // (illegal in doc ids) or start with '__' (reserved id prefix).
+    function isLabNameString(value) {
+      return isShortString(value, 80)
+        && !value.matches('.*/.*')
+        && !value.matches('^__.*');
+    }
+
+    // Legacy client-verified credential record (pre-membership scheme).
+    // Still recognized so rules can force correct migration values.
     function validCredentialRecord(record) {
       return record is map
         && record.keys().hasOnly(['v', 'algo', 'iterations', 'salt', 'hash'])
         && record.v == 1
         && record.algo == 'PBKDF2-SHA256'
-        && record.iterations is int
-        && record.iterations >= 100000
-        && record.iterations <= 500000
-        && record.salt is string
-        && record.salt.size() >= 16
-        && record.salt.size() <= 128
+        && isIterationCount(record.iterations)
+        && isSaltString(record.salt)
         && record.hash is string
         && record.hash.size() >= 32
         && record.hash.size() <= 256;
     }
 
-    function validLabDocument(data) {
-      return data.keys().hasOnly([
-        'name',
-        'adminCredential',
-        'memberCredential',
-        'adminPin',
-        'memberPin',
-        'createdAt'
-      ])
-      && isShortString(data.name, 80)
-      && (
-        (('adminCredential' in data) && validCredentialRecord(data.adminCredential))
-        || (('adminPin' in data) && isShortString(data.adminPin, 128))
-      )
-      && (
-        (('memberCredential' in data) && validCredentialRecord(data.memberCredential))
-        || (('memberPin' in data) && isShortString(data.memberPin, 128))
-      )
-      && (!('createdAt' in data) || data.createdAt is timestamp);
-    }
+    match /artifacts/{appId}/public/data {
 
-    function validLabUserDocument(data) {
-      return data.keys().hasOnly([
-        'labName',
-        'userName',
-        'credential',
-        'pinCode',
-        'createdAt'
-      ])
-      && isShortString(data.labName, 80)
-      && isShortString(data.userName, 80)
-      && (
-        (('credential' in data) && validCredentialRecord(data.credential))
-        || (('pinCode' in data) && isShortString(data.pinCode, 128))
-      )
-      && (!('createdAt' in data) || data.createdAt is timestamp);
-    }
+      function labPath(labId) {
+        return /databases/$(database)/documents/artifacts/$(appId)/public/data/labs/$(labId);
+      }
 
-    function validInstrumentDocument(data) {
-      return data.keys().hasOnly([
-        'labName',
-        'name',
-        'location',
-        'maxCapacity',
-        'color',
-        'subOptions',
-        'conflicts',
-        'isUnderMaintenance',
-        'createdAt'
-      ])
-      && isShortString(data.labName, 80)
-      && isShortString(data.name, 120)
-      && isOptionalString(data.location, 120)
-      && data.maxCapacity is int
-      && data.maxCapacity >= 1
-      && data.maxCapacity <= 1000
-      && isOptionalString(data.color, 64)
-      && (!('subOptions' in data) || (data.subOptions is list && data.subOptions.size() <= 40))
-      && (!('conflicts' in data) || (data.conflicts is list && data.conflicts.size() <= 50))
-      && (!('isUnderMaintenance' in data) || data.isUnderMaintenance is bool)
-      && (!('createdAt' in data) || data.createdAt is timestamp);
-    }
+      function labSecretsPath(labId) {
+        return /databases/$(database)/documents/artifacts/$(appId)/public/data/lab_secrets/$(labId);
+      }
 
-    function validBookingDocument(data) {
-      return data.keys().hasOnly([
-        'labName',
-        'instrumentId',
-        'instrumentName',
-        'date',
-        'hour',
-        'userName',
-        'authUid',
-        'selectedUnit',
-        'requestedQuantity',
-        'bookingComment',
-        'bookingGroupId',
-        'createdAt'
-      ])
-      && isShortString(data.labName, 80)
-      && isShortString(data.instrumentId, 120)
-      && isShortString(data.instrumentName, 120)
-      && isDateString(data.date)
-      && data.hour is int
-      && data.hour >= 0
-      && data.hour <= 23
-      && isShortString(data.userName, 80)
-      && (!('selectedUnit' in data) || data.selectedUnit == null || isShortString(data.selectedUnit, 120))
-      && data.requestedQuantity is int
-      && data.requestedQuantity >= 1
-      && data.requestedQuantity <= 1000
-      && (!('bookingComment' in data) || data.bookingComment == null || isOptionalString(data.bookingComment, 500))
-      && (data.authUid == null || (data.authUid is string && data.authUid == request.auth.uid))
-      && (data.bookingGroupId == null || (data.bookingGroupId is string && data.bookingGroupId.size() <= 96))
-      && data.createdAt is timestamp;
-    }
+      function labUserPath(userId) {
+        return /databases/$(database)/documents/artifacts/$(appId)/public/data/lab_users/$(userId);
+      }
 
-    function validNoteDocument(data) {
-      return data.keys().hasOnly([
-        'labName',
-        'instrumentId',
-        'instrumentName',
-        'userName',
-        'message',
-        'timestamp'
-      ])
-      && isShortString(data.labName, 80)
-      && isShortString(data.instrumentId, 120)
-      && isShortString(data.instrumentName, 120)
-      && isShortString(data.userName, 80)
-      && isShortString(data.message, 2000)
-      && data.timestamp is timestamp;
-    }
+      function labUserSecretsPath(userId) {
+        return /databases/$(database)/documents/artifacts/$(appId)/public/data/lab_user_secrets/$(userId);
+      }
 
-    function validLogDocument(data) {
-      return data.keys().hasOnly([
-        'labName',
-        'action',
-        'message',
-        'userName',
-        'timestamp'
-      ])
-      && isShortString(data.labName, 80)
-      && isShortString(data.action, 60)
-      && isShortString(data.message, 400)
-      && isShortString(data.userName, 80)
-      && data.timestamp is timestamp;
-    }
+      function membershipPath(labName) {
+        return /databases/$(database)/documents/artifacts/$(appId)/public/data/memberships/$(labName + '__' + request.auth.uid);
+      }
 
-    function validAggregateDocument(data) {
-      return data.keys().hasOnly([
-        'labName',
-        'instrumentId',
-        'date',
-        'hour',
-        'usedQuantity',
-        'bookingCount',
-        'updatedAt'
-      ])
-      && isShortString(data.labName, 80)
-      && isShortString(data.instrumentId, 120)
-      && isDateString(data.date)
-      && data.hour is int
-      && data.hour >= 0
-      && data.hour <= 23
-      && data.usedQuantity is int
-      && data.usedQuantity >= 0
-      && data.usedQuantity <= 100000
-      && data.bookingCount is int
-      && data.bookingCount >= 0
-      && data.bookingCount <= 100000
-      && data.updatedAt is timestamp;
-    }
+      // The caller's proven membership in a lab. get() on a missing doc
+      // errors, which safely denies the enclosing condition.
+      function myMembership(labName) {
+        return get(membershipPath(labName)).data;
+      }
 
-    match /artifacts/{appId}/public/data/labs/{labId} {
-      allow read: if isSignedIn();
-      allow create, update: if isSignedIn() && validLabDocument(request.resource.data);
-      allow delete: if false;
-    }
+      function isLabMember(labName) {
+        return isSignedIn() && myMembership(labName).labName == labName;
+      }
 
-    match /artifacts/{appId}/public/data/lab_users/{userId} {
-      allow read: if isSignedIn();
-      allow create, update: if isSignedIn() && validLabUserDocument(request.resource.data);
-      allow delete: if false;
-    }
+      function isLabAdmin(labName) {
+        return isSignedIn() && myMembership(labName).role == 'ADMIN';
+      }
 
-    match /artifacts/{appId}/public/data/instruments/{instrumentId} {
-      allow read: if isSignedIn();
-      allow create, update: if isSignedIn() && validInstrumentDocument(request.resource.data);
-      allow delete: if isSignedIn();
-    }
+      function myMemberName(labName) {
+        return myMembership(labName).userName;
+      }
 
-    match /artifacts/{appId}/public/data/bookings/{bookingId} {
-      allow read: if isSignedIn();
-      allow create: if isSignedIn() && validBookingDocument(request.resource.data);
-      allow update: if false;
-      // Identity is app-level (labName + userName); anonymous auth uids change
-      // whenever browser storage is cleared, so a uid match here permanently
-      // orphaned bookings. Ownership is enforced client-side, matching the
-      // trust level of instruments/notes/aggregates deletes below.
-      allow delete: if isSignedIn();
-    }
+      // ------------------------------------------------------------------
+      // labs: public directory of lab names + PBKDF2 salt parameters.
+      // Secrets live in lab_secrets (never readable).
+      // ------------------------------------------------------------------
+      function validNewLabDocument(data) {
+        return data.keys().hasOnly([
+          'name',
+          'adminSalt',
+          'adminIterations',
+          'memberSalt',
+          'memberIterations',
+          'createdAt'
+        ])
+        && isLabNameString(data.name)
+        && isSaltString(data.adminSalt)
+        && isIterationCount(data.adminIterations)
+        && isSaltString(data.memberSalt)
+        && isIterationCount(data.memberIterations)
+        && (!('createdAt' in data) || data.createdAt is timestamp);
+      }
 
-    match /artifacts/{appId}/public/data/booking_slot_aggregates/{aggregateId} {
-      allow read: if isSignedIn();
-      allow create, update: if isSignedIn() && validAggregateDocument(request.resource.data);
-      allow delete: if isSignedIn();
-    }
+      // Legacy lab doc with both roles upgraded to credential records.
+      function migratableLegacyLab(data) {
+        return validCredentialRecord(data.adminCredential)
+          && validCredentialRecord(data.memberCredential);
+      }
 
-    match /artifacts/{appId}/public/data/notes/{noteId} {
-      allow read: if isSignedIn();
-      allow create: if isSignedIn() && validNoteDocument(request.resource.data);
-      allow update: if false;
-      allow delete: if isSignedIn();
-    }
+      match /labs/{labId} {
+        allow read: if isSignedIn();
+        // Creating a lab must atomically write lab_secrets and the
+        // creator's ADMIN membership in the same batch.
+        allow create: if isSignedIn()
+          && validNewLabDocument(request.resource.data)
+          && isProofString(getAfter(labSecretsPath(labId)).data.adminProof)
+          && getAfter(membershipPath(request.resource.data.name)).data.role == 'ADMIN';
+        allow update: if isSignedIn()
+          && validNewLabDocument(request.resource.data)
+          && request.resource.data.name == resource.data.name
+          && (
+            // Admin maintenance (e.g. password rotation with lab_secrets).
+            isLabAdmin(resource.data.name)
+            // Legacy migration: salts must be copied verbatim from the old
+            // credential records and lab_secrets (same batch) must hold
+            // exactly the proofs from the old records — every value is
+            // forced, so this write is safe for any signed-in caller.
+            || (
+              migratableLegacyLab(resource.data)
+              && request.resource.data.adminSalt == resource.data.adminCredential.salt
+              && request.resource.data.adminIterations == resource.data.adminCredential.iterations
+              && request.resource.data.memberSalt == resource.data.memberCredential.salt
+              && request.resource.data.memberIterations == resource.data.memberCredential.iterations
+              && getAfter(labSecretsPath(labId)).data.adminProof == resource.data.adminCredential.hash
+              && getAfter(labSecretsPath(labId)).data.memberProof == resource.data.memberCredential.hash
+            )
+          );
+        allow delete: if false;
+      }
 
-    match /artifacts/{appId}/public/data/logs/{logId} {
-      allow read: if isSignedIn();
-      allow create: if isSignedIn() && validLogDocument(request.resource.data);
-      allow update, delete: if false;
+      // ------------------------------------------------------------------
+      // lab_secrets: the per-role PBKDF2 proofs. Never readable by clients,
+      // which is what prevents offline brute-force of the passwords.
+      // ------------------------------------------------------------------
+      function validLabSecretsDocument(data) {
+        return data.keys().hasOnly(['adminProof', 'memberProof', 'updatedAt'])
+          && isProofString(data.adminProof)
+          && isProofString(data.memberProof)
+          && (!('updatedAt' in data) || data.updatedAt is timestamp);
+      }
+
+      match /lab_secrets/{labId} {
+        allow read: if false;
+        allow create: if isSignedIn()
+          && validLabSecretsDocument(request.resource.data)
+          && (
+            // New-lab batch: the lab doc must not exist yet and must be
+            // valid new-format after this batch.
+            (
+              !exists(labPath(labId))
+              && validNewLabDocument(getAfter(labPath(labId)).data)
+            )
+            // Legacy migration: both proofs are forced verbatim from the
+            // stored credential records, so no caller can inject their own.
+            || (
+              migratableLegacyLab(get(labPath(labId)).data)
+              && request.resource.data.adminProof == get(labPath(labId)).data.adminCredential.hash
+              && request.resource.data.memberProof == get(labPath(labId)).data.memberCredential.hash
+            )
+          );
+        allow update: if isSignedIn()
+          && validLabSecretsDocument(request.resource.data)
+          && isLabAdmin(get(labPath(labId)).data.name);
+        allow delete: if false;
+      }
+
+      // ------------------------------------------------------------------
+      // memberships: proof-of-password session records, one per lab + uid.
+      // Writing one with a valid proof IS the login. userName is attached
+      // after identity verification and is the trusted author name for
+      // bookings, notes, and logs.
+      // ------------------------------------------------------------------
+      function validMembershipDocument(data) {
+        return data.keys().hasOnly([
+          'labName',
+          'labId',
+          'uid',
+          'role',
+          'userName',
+          'labUserId',
+          'proof',
+          'userProof',
+          'createdAt'
+        ])
+        && isShortString(data.labName, 80)
+        && isShortString(data.labId, 120)
+        && data.uid == request.auth.uid
+        && (data.role == 'ADMIN' || data.role == 'MEMBER')
+        && (!('userName' in data) || data.userName == null || isShortString(data.userName, 80))
+        && (!('labUserId' in data) || data.labUserId == null || isShortString(data.labUserId, 120))
+        && (!('proof' in data) || isShortString(data.proof, 256))
+        && (!('userProof' in data) || isShortString(data.userProof, 256))
+        && (!('createdAt' in data) || data.createdAt is timestamp);
+      }
+
+      // Lab binding + proof check; getAfter variants cover the new-lab
+      // batch where labs/lab_secrets are written in the same commit.
+      function membershipLabBindingOk(data) {
+        return get(labPath(data.labId)).data.name == data.labName
+          || getAfter(labPath(data.labId)).data.name == data.labName;
+      }
+
+      function membershipProofOk(data) {
+        return get(labSecretsPath(data.labId)).data[data.role == 'ADMIN' ? 'adminProof' : 'memberProof'] == data.proof
+          || getAfter(labSecretsPath(data.labId)).data[data.role == 'ADMIN' ? 'adminProof' : 'memberProof'] == data.proof;
+      }
+
+      // Fresh login state: admins are named 'Admin', members attach a
+      // verified userName later.
+      function membershipLoginNameOk(data) {
+        return (data.role == 'ADMIN' && data.userName == 'Admin')
+          || (data.role == 'MEMBER' && (!('userName' in data) || data.userName == null));
+      }
+
+      function membershipLoginOk(data) {
+        return validMembershipDocument(data)
+          && membershipLabBindingOk(data)
+          && membershipProofOk(data)
+          && membershipLoginNameOk(data);
+      }
+
+      // Identity attach: lab_users doc must match the claimed name + lab,
+      // and the personal-password proof must match lab_user_secrets.
+      // getAfter variants cover the auto-register batch.
+      function membershipUserBindingOk(data) {
+        return (
+          get(labUserPath(data.labUserId)).data.labName == data.labName
+          && get(labUserPath(data.labUserId)).data.userName == data.userName
+        ) || (
+          getAfter(labUserPath(data.labUserId)).data.labName == data.labName
+          && getAfter(labUserPath(data.labUserId)).data.userName == data.userName
+        );
+      }
+
+      function membershipUserProofOk(data) {
+        return get(labUserSecretsPath(data.labUserId)).data.proof == data.userProof
+          || getAfter(labUserSecretsPath(data.labUserId)).data.proof == data.userProof;
+      }
+
+      match /memberships/{membershipId} {
+        allow get: if isSignedIn() && resource.data.uid == request.auth.uid;
+        allow list: if false;
+        allow create: if isSignedIn()
+          && membershipId == request.resource.data.labName + '__' + request.auth.uid
+          && membershipLoginOk(request.resource.data);
+        allow update: if isSignedIn()
+          && resource.data.uid == request.auth.uid
+          && validMembershipDocument(request.resource.data)
+          && (
+            // Full re-login (may switch role); requires a fresh proof.
+            (
+              request.resource.data.labName == resource.data.labName
+              && membershipLoginOk(request.resource.data)
+            )
+            // Identity verification for members.
+            || (
+              request.resource.data.diff(resource.data).affectedKeys().hasOnly(['userName', 'labUserId', 'userProof'])
+              && resource.data.role == 'MEMBER'
+              && isShortString(request.resource.data.userName, 80)
+              && isShortString(request.resource.data.labUserId, 120)
+              && membershipUserBindingOk(request.resource.data)
+              && membershipUserProofOk(request.resource.data)
+            )
+            // Stripping transient proof fields after a successful write.
+            || (
+              request.resource.data.diff(resource.data).affectedKeys().hasOnly(['proof', 'userProof'])
+              && !('proof' in request.resource.data)
+              && !('userProof' in request.resource.data)
+            )
+          );
+        allow delete: if isSignedIn() && resource.data.uid == request.auth.uid;
+      }
+
+      // ------------------------------------------------------------------
+      // lab_users: member identity directory (name + salt parameters).
+      // Personal-password secrets live in lab_user_secrets.
+      // ------------------------------------------------------------------
+      function validNewLabUserDocument(data) {
+        return data.keys().hasOnly(['labName', 'userName', 'salt', 'iterations', 'createdAt'])
+          && isShortString(data.labName, 80)
+          && isShortString(data.userName, 80)
+          && isSaltString(data.salt)
+          && isIterationCount(data.iterations)
+          && (!('createdAt' in data) || data.createdAt is timestamp);
+      }
+
+      match /lab_users/{userId} {
+        allow read: if isLabMember(resource.data.labName);
+        // Self-registration by lab members; lab_user_secrets must be
+        // written in the same batch.
+        allow create: if isSignedIn()
+          && validNewLabUserDocument(request.resource.data)
+          && isLabMember(request.resource.data.labName)
+          && isProofString(getAfter(labUserSecretsPath(userId)).data.proof);
+        allow update: if isSignedIn()
+          && validNewLabUserDocument(request.resource.data)
+          && request.resource.data.labName == resource.data.labName
+          && request.resource.data.userName == resource.data.userName
+          && (
+            // Legacy migration: salt parameters copied verbatim from the
+            // old credential record; secrets forced in the same batch.
+            (
+              validCredentialRecord(resource.data.credential)
+              && request.resource.data.salt == resource.data.credential.salt
+              && request.resource.data.iterations == resource.data.credential.iterations
+              && getAfter(labUserSecretsPath(userId)).data.proof == resource.data.credential.hash
+            )
+            // Self password change (verified identity holder only).
+            || myMembership(resource.data.labName).labUserId == userId
+          );
+        allow delete: if isLabAdmin(resource.data.labName);
+      }
+
+      // ------------------------------------------------------------------
+      // lab_user_secrets: personal-password proofs. Never readable.
+      // ------------------------------------------------------------------
+      function validLabUserSecretsDocument(data) {
+        return data.keys().hasOnly(['proof', 'updatedAt'])
+          && isProofString(data.proof)
+          && (!('updatedAt' in data) || data.updatedAt is timestamp);
+      }
+
+      match /lab_user_secrets/{userId} {
+        allow read: if false;
+        allow create: if isSignedIn()
+          && validLabUserSecretsDocument(request.resource.data)
+          && (
+            // Auto-register batch: new lab_users doc in same commit,
+            // created by an authenticated lab member.
+            (
+              !exists(labUserPath(userId))
+              && isLabMember(getAfter(labUserPath(userId)).data.labName)
+            )
+            // Legacy migration: forced from the stored credential record.
+            || request.resource.data.proof == get(labUserPath(userId)).data.credential.hash
+          );
+        allow update: if isSignedIn()
+          && validLabUserSecretsDocument(request.resource.data)
+          && myMembership(get(labUserPath(userId)).data.labName).labUserId == userId;
+        allow delete: if isLabAdmin(get(labUserPath(userId)).data.labName);
+      }
+
+      // ------------------------------------------------------------------
+      // instruments: admin-managed.
+      // ------------------------------------------------------------------
+      function validInstrumentDocument(data) {
+        return data.keys().hasOnly([
+          'labName',
+          'name',
+          'location',
+          'maxCapacity',
+          'color',
+          'subOptions',
+          'conflicts',
+          'isUnderMaintenance',
+          'createdAt'
+        ])
+        && isShortString(data.labName, 80)
+        && isShortString(data.name, 120)
+        && isOptionalString(data.location, 120)
+        && data.maxCapacity is int
+        && data.maxCapacity >= 1
+        && data.maxCapacity <= 1000
+        && isOptionalString(data.color, 64)
+        && (!('subOptions' in data) || (data.subOptions is list && data.subOptions.size() <= 40))
+        && (!('conflicts' in data) || (data.conflicts is list && data.conflicts.size() <= 50))
+        && (!('isUnderMaintenance' in data) || data.isUnderMaintenance is bool)
+        && (!('createdAt' in data) || data.createdAt is timestamp);
+      }
+
+      match /instruments/{instrumentId} {
+        allow read: if isLabMember(resource.data.labName);
+        allow create: if isLabAdmin(request.resource.data.labName)
+          && validInstrumentDocument(request.resource.data);
+        allow update: if isLabAdmin(resource.data.labName)
+          && validInstrumentDocument(request.resource.data)
+          && request.resource.data.labName == resource.data.labName;
+        allow delete: if isLabAdmin(resource.data.labName);
+      }
+
+      // ------------------------------------------------------------------
+      // bookings: created by verified members under their own userName.
+      // ------------------------------------------------------------------
+      function validBookingDocument(data) {
+        return data.keys().hasOnly([
+          'labName',
+          'instrumentId',
+          'instrumentName',
+          'date',
+          'hour',
+          'userName',
+          'authUid',
+          'selectedUnit',
+          'requestedQuantity',
+          'bookingComment',
+          'bookingGroupId',
+          'createdAt'
+        ])
+        && isShortString(data.labName, 80)
+        && isShortString(data.instrumentId, 120)
+        && isShortString(data.instrumentName, 120)
+        && isDateString(data.date)
+        && data.hour is int
+        && data.hour >= 0
+        && data.hour <= 23
+        && isShortString(data.userName, 80)
+        && (!('selectedUnit' in data) || data.selectedUnit == null || isShortString(data.selectedUnit, 120))
+        && data.requestedQuantity is int
+        && data.requestedQuantity >= 1
+        && data.requestedQuantity <= 1000
+        && (!('bookingComment' in data) || data.bookingComment == null || isOptionalString(data.bookingComment, 500))
+        && data.authUid is string
+        && data.authUid == request.auth.uid
+        && (data.bookingGroupId == null || (data.bookingGroupId is string && data.bookingGroupId.size() <= 96))
+        && data.createdAt is timestamp;
+      }
+
+      match /bookings/{bookingId} {
+        // resource == null covers transaction reads of not-yet-existing docs.
+        allow get: if isSignedIn()
+          && (resource == null || isLabMember(resource.data.labName));
+        allow list: if isLabMember(resource.data.labName);
+        allow create: if isLabMember(request.resource.data.labName)
+          && validBookingDocument(request.resource.data)
+          && request.resource.data.userName == myMemberName(request.resource.data.labName);
+        allow update: if false;
+        // Owner (verified userName) or lab admin (instrument-delete cascade,
+        // stuck-booking cleanup).
+        allow delete: if isLabMember(resource.data.labName)
+          && (
+            resource.data.userName == myMemberName(resource.data.labName)
+            || isLabAdmin(resource.data.labName)
+          );
+      }
+
+      // ------------------------------------------------------------------
+      // booking_slot_aggregates: capacity counters kept by transactions.
+      // ------------------------------------------------------------------
+      function validAggregateDocument(data) {
+        return data.keys().hasOnly([
+          'labName',
+          'instrumentId',
+          'date',
+          'hour',
+          'usedQuantity',
+          'bookingCount',
+          'updatedAt'
+        ])
+        && isShortString(data.labName, 80)
+        && isShortString(data.instrumentId, 120)
+        && isDateString(data.date)
+        && data.hour is int
+        && data.hour >= 0
+        && data.hour <= 23
+        && data.usedQuantity is int
+        && data.usedQuantity >= 0
+        && data.usedQuantity <= 100000
+        && data.bookingCount is int
+        && data.bookingCount >= 0
+        && data.bookingCount <= 100000
+        && data.updatedAt is timestamp;
+      }
+
+      match /booking_slot_aggregates/{aggregateId} {
+        // Counters only (no personal data); get stays open so transactions
+        // can probe not-yet-existing aggregate docs.
+        allow get: if isSignedIn();
+        allow list: if false;
+        allow create, update: if isLabMember(request.resource.data.labName)
+          && validAggregateDocument(request.resource.data);
+        allow delete: if isLabMember(resource.data.labName);
+      }
+
+      // ------------------------------------------------------------------
+      // notes (issue reports): written by verified members, removed by admins.
+      // ------------------------------------------------------------------
+      function validNoteDocument(data) {
+        return data.keys().hasOnly([
+          'labName',
+          'instrumentId',
+          'instrumentName',
+          'userName',
+          'message',
+          'timestamp'
+        ])
+        && isShortString(data.labName, 80)
+        && isShortString(data.instrumentId, 120)
+        && isShortString(data.instrumentName, 120)
+        && isShortString(data.userName, 80)
+        && isShortString(data.message, 2000)
+        && data.timestamp is timestamp;
+      }
+
+      match /notes/{noteId} {
+        allow read: if isLabMember(resource.data.labName);
+        allow create: if isLabMember(request.resource.data.labName)
+          && validNoteDocument(request.resource.data)
+          && request.resource.data.userName == myMemberName(request.resource.data.labName);
+        allow update: if false;
+        allow delete: if isLabAdmin(resource.data.labName);
+      }
+
+      // ------------------------------------------------------------------
+      // logs: append-only audit trail from verified authors.
+      // ------------------------------------------------------------------
+      function validLogDocument(data) {
+        return data.keys().hasOnly([
+          'labName',
+          'action',
+          'message',
+          'userName',
+          'timestamp'
+        ])
+        && isShortString(data.labName, 80)
+        && isShortString(data.action, 60)
+        && isShortString(data.message, 400)
+        && isShortString(data.userName, 80)
+        && data.timestamp is timestamp;
+      }
+
+      match /logs/{logId} {
+        allow read: if isLabMember(resource.data.labName);
+        allow create: if isLabMember(request.resource.data.labName)
+          && validLogDocument(request.resource.data)
+          && request.resource.data.userName == myMemberName(request.resource.data.labName);
+        allow update, delete: if false;
+      }
     }
 
     match /artifacts/{appId}/public/data/{document=**} {

@@ -51,24 +51,22 @@ const deriveHash = async (password, saltBase64, iterations = DEFAULT_ITERATIONS)
   return toBase64(new Uint8Array(derivedBits));
 };
 
-/**
- * Create a hashed credential record for Firestore.
- */
-export const createCredentialRecord = async (password) => {
-  const saltBytes = globalThis.crypto.getRandomValues(new Uint8Array(16));
-  const salt = toBase64(saltBytes);
-  const hash = await deriveHash(password, salt, DEFAULT_ITERATIONS);
-  return {
-    v: 1,
-    algo: 'PBKDF2-SHA256',
-    iterations: DEFAULT_ITERATIONS,
-    salt,
-    hash
-  };
-};
+export const CREDENTIAL_ITERATIONS = DEFAULT_ITERATIONS;
+
+export const generateSaltBase64 = () => (
+  toBase64(globalThis.crypto.getRandomValues(new Uint8Array(16)))
+);
 
 /**
- * Verify password against a hashed credential record.
+ * Password proof sent to Firestore rules: base64(PBKDF2-SHA256(password)).
+ */
+export const deriveProofBase64 = (password, saltBase64, iterations = DEFAULT_ITERATIONS) => (
+  deriveHash(password, saltBase64, Number(iterations) || DEFAULT_ITERATIONS)
+);
+
+/**
+ * Verify password against a legacy client-verified credential record
+ * (only used to pre-check before a rules-forced migration batch).
  */
 export const verifyCredentialRecord = async (password, record) => {
   if (!record || typeof record !== 'object') return false;

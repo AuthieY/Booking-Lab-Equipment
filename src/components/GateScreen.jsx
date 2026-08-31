@@ -1,9 +1,8 @@
 // src/components/GateScreen.jsx
 import React, { useState } from 'react';
-import { collection, query, where, getDocs, addDoc, serverTimestamp, updateDoc, doc, deleteField } from 'firebase/firestore';
 import { Beaker, ShieldAlert, Lock, AlertCircle, Loader2 } from 'lucide-react';
-import { db, appId, addAuditLog } from '../api/firebase';
-import { createCredentialRecord, verifyCredentialRecord } from '../utils/security';
+import { addAuditLog } from '../api/firebase';
+import { findLabByName, createLab, loginToLab } from '../api/membership';
 
 export const GateScreen = ({ onLoginSuccess }) => {
   const [isCreating, setIsCreating] = useState(false);
@@ -15,57 +14,31 @@ export const GateScreen = ({ onLoginSuccess }) => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
-  const checkLabExists = async (name) => {
-    const q = query(collection(db, 'artifacts', appId, 'public', 'data', 'labs'), where('name', '==', name));
-    const snap = await getDocs(q);
-    if (snap.empty) return null;
-    const labDoc = snap.docs[0];
-    return { id: labDoc.id, ...labDoc.data() };
-  };
-
   const handleSubmit = async (e) => {
     e.preventDefault(); setError(''); setLoading(true);
     try {
-      const labData = await checkLabExists(labName.trim());
+      const trimmedName = labName.trim();
+      const labData = await findLabByName(trimmedName);
       if (isCreating) {
         if (labData) throw new Error("Lab name already taken.");
         if (!newAdminPass || !newMemberPass) throw new Error("Please fill in all passwords.");
-        const adminCredential = await createCredentialRecord(newAdminPass.trim());
-        const memberCredential = await createCredentialRecord(newMemberPass.trim());
-        await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'labs'), {
-            name: labName.trim(), adminCredential, memberCredential, createdAt: serverTimestamp()
+        await createLab({
+          labName: trimmedName,
+          adminPassword: newAdminPass.trim(),
+          memberPassword: newMemberPass.trim()
         });
-        await addAuditLog(labName.trim(), 'LAB_CREATE', `Lab Initialized`, 'System');
-        onLoginSuccess({ role: 'ADMIN', labName: labName.trim() });
+        await addAuditLog(trimmedName, 'LAB_CREATE', `Lab Initialized`, 'Admin');
+        onLoginSuccess({ role: 'ADMIN', labName: trimmedName });
       } else {
         if (!labData) throw new Error("Lab not found.");
-        const isAdminRole = role === 'ADMIN';
-        const credentialField = isAdminRole ? 'adminCredential' : 'memberCredential';
-        const legacyField = isAdminRole ? 'adminPin' : 'memberPin';
-        const enteredPassword = password.trim();
-        const credential = labData[credentialField];
-        let isValid = false;
-
-        if (credential) {
-          isValid = await verifyCredentialRecord(enteredPassword, credential);
-        } else if (typeof labData[legacyField] === 'string') {
-          isValid = labData[legacyField] === enteredPassword;
-          if (isValid) {
-            const upgradedCredential = await createCredentialRecord(enteredPassword);
-            await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'labs', labData.id), {
-              [credentialField]: upgradedCredential,
-              [legacyField]: deleteField()
-            });
-          }
-        }
-
-        if (!isValid) {
-          throw new Error(isAdminRole ? "Invalid admin password." : "Invalid member password.");
-        }
-
-        onLoginSuccess({ role, labName: labName.trim() });
+        await loginToLab({ lab: labData, role, password: password.trim() });
+        onLoginSuccess({ role, labName: trimmedName });
       }
-    } catch (err) { setError(err.message); } finally { setLoading(false); }
+    } catch (err) {
+      // Firestore/network errors carry a code; show those as a generic
+      // message instead of leaking internals.
+      setError(err?.code ? 'Unable to sign in. Please check your connection and try again.' : err.message);
+    } finally { setLoading(false); }
   };
 
   return (
