@@ -1,8 +1,9 @@
 // src/components/GateScreen.jsx
 import React, { useState } from 'react';
-import { Beaker, ShieldAlert, Lock, AlertCircle, Loader2 } from 'lucide-react';
+import { Beaker, ShieldAlert, Lock, Loader2 } from 'lucide-react';
 import { addAuditLog } from '../api/firebase';
 import { findLabByName, createLab, loginToLab } from '../api/membership';
+import ThemeToggle from './common/ThemeToggle';
 
 export const GateScreen = ({ onLoginSuccess }) => {
   const [isCreating, setIsCreating] = useState(false);
@@ -43,17 +44,23 @@ export const GateScreen = ({ onLoginSuccess }) => {
 
   return (
     <div className="flex flex-col items-center justify-center min-h-screen ds-page p-4 md:p-6 ds-animate-enter">
-      <div className="w-full max-w-md ds-card ds-section-lg">
-        <div className="flex justify-center mb-4">
-          <div className={`p-4 rounded-full ${isCreating ? 'bg-slate-100' : role === 'ADMIN' ? 'bg-slate-200' : 'bg-slate-100'}`}>
-            {isCreating ? <Beaker className="w-10 h-10 text-slate-600"/> : role === 'ADMIN' ? <ShieldAlert className="w-10 h-10 text-slate-700"/> : <Lock className="w-10 h-10 text-slate-600" />}
-          </div>
+      <div className="fixed top-3 right-3 z-10">
+        <ThemeToggle />
+      </div>
+      <div className="w-full max-w-sm ds-card ds-section-lg">
+        <div className="flex items-center justify-center gap-2 mb-3">
+          {isCreating
+            ? <Beaker className="w-5 h-5 text-[color:var(--ds-text-strong)]" aria-hidden="true" />
+            : role === 'ADMIN'
+              ? <ShieldAlert className="w-5 h-5 text-[color:var(--ds-text-strong)]" aria-hidden="true" />
+              : <Lock className="w-5 h-5 text-[color:var(--ds-text-strong)]" aria-hidden="true" />}
+          <span className="ds-microcaps text-[color:var(--ds-text-muted)]">Booking-Lab</span>
         </div>
-        <h1 className="text-xl font-bold text-center text-slate-800 mb-2">{isCreating ? 'Create lab' : role === 'ADMIN' ? 'Admin sign in' : 'Member sign in'}</h1>
+        <h1 className="text-lg font-bold text-center text-[color:var(--ds-text-strong)] mb-2">{isCreating ? 'Create lab' : role === 'ADMIN' ? 'Admin sign in' : 'Member sign in'}</h1>
         {!isCreating && (
-          <div className="flex bg-slate-100 p-1 rounded-[var(--ds-radius-lg)] overflow-hidden mb-6" role="tablist" aria-label="Select role">
-            <button type="button" role="tab" aria-selected={role==='MEMBER'} onClick={()=>setRole('MEMBER')} className={`flex-1 py-2 ds-tab text-xs font-bold ${role==='MEMBER'?'ds-tab-active text-blue-700':'ds-tab-inactive'}`}>Member</button>
-            <button type="button" role="tab" aria-selected={role==='ADMIN'} onClick={()=>setRole('ADMIN')} className={`flex-1 py-2 ds-tab text-xs font-bold ${role==='ADMIN'?'ds-tab-active':'ds-tab-inactive'}`}>Admin</button>
+          <div className="flex border-b border-[var(--ds-rule-strong)] mb-6" role="tablist" aria-label="Select role">
+            <button type="button" role="tab" aria-selected={role==='MEMBER'} onClick={()=>setRole('MEMBER')} className={`flex-1 py-2 ds-tab text-xs font-semibold ${role==='MEMBER'?'ds-tab-active':'ds-tab-inactive'}`}>Member</button>
+            <button type="button" role="tab" aria-selected={role==='ADMIN'} onClick={()=>setRole('ADMIN')} className={`flex-1 py-2 ds-tab text-xs font-semibold ${role==='ADMIN'?'ds-tab-active':'ds-tab-inactive'}`}>Admin</button>
           </div>
         )}
         <form onSubmit={handleSubmit} className="space-y-4">
@@ -72,11 +79,11 @@ export const GateScreen = ({ onLoginSuccess }) => {
               <input id="lab-password" autoComplete="current-password" type="password" value={password} onChange={(e) => setPassword(e.target.value)} className="ds-input mt-1 p-3" />
             </div>
           )}
-          {error && <div className="bg-red-50 text-red-500 p-3 rounded-lg text-xs flex items-center gap-2 border border-red-200" role="alert" aria-live="assertive"><AlertCircle className="w-4 h-4 shrink-0"/> <span>{error}</span></div>}
-          <button type="submit" disabled={loading} aria-busy={loading} className="w-full ds-btn ds-btn-primary text-white py-4 mt-4 flex items-center justify-center gap-2">{loading ? <Loader2 className="animate-spin w-5 h-5" /> : isCreating ? "Create lab" : "Sign in"}</button>
+          {error && <p className="text-xs text-[color:var(--ds-danger-text)] border-l-2 border-[var(--ds-danger-text)] pl-2" role="alert" aria-live="assertive">{error}</p>}
+          <button type="submit" disabled={loading} aria-busy={loading} className="w-full ds-btn ds-btn-primary py-3.5 mt-4 text-[13px] font-semibold uppercase tracking-wide flex items-center justify-center gap-2">{loading ? <Loader2 className="animate-spin w-5 h-5" /> : isCreating ? "Create lab" : "Sign in"}</button>
         </form>
-        <div className="mt-6 text-center border-t border-slate-100 pt-4">
-          <button type="button" onClick={()=>{setIsCreating(!isCreating); setError(''); setPassword('');}} className="text-sm font-bold text-slate-500 hover:text-[var(--ds-brand-700)] underline">{isCreating ? 'Existing lab? Sign in' : 'Create lab'}</button>
+        <div className="mt-6 text-center border-t border-[var(--ds-rule)] pt-4">
+          <button type="button" onClick={()=>{setIsCreating(!isCreating); setError(''); setPassword('');}} className="text-xs font-semibold text-[color:var(--ds-text-muted)] underline hover:text-[color:var(--ds-text)]">{isCreating ? 'Existing lab? Sign in' : 'Create lab'}</button>
         </div>
       </div>
     </div>

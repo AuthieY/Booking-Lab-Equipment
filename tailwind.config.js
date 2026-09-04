@@ -9,8 +9,9 @@ export default {
   theme: {
     extend: {
       fontFamily: {
-        sans: ['"Plus Jakarta Sans"', ...defaultTheme.fontFamily.sans],
+        sans: ['Inter', ...defaultTheme.fontFamily.sans],
         data: ['"IBM Plex Sans"', ...defaultTheme.fontFamily.sans],
+        'data-mono': ['"IBM Plex Mono"', ...defaultTheme.fontFamily.mono],
       },
     },
   },

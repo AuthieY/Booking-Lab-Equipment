@@ -23,8 +23,8 @@ const preloadAdminRoute = () => {
 };
 
 const RouteLoader = () => (
-  <div className="flex items-center justify-center min-h-screen bg-slate-50">
-    <Loader2 className="animate-spin text-indigo-600 w-8 h-8" />
+  <div className="flex items-center justify-center min-h-screen ds-page">
+    <Loader2 className="animate-spin text-[color:var(--ds-brand-700)] w-8 h-8" />
   </div>
 );
 
@@ -211,8 +211,8 @@ export default function App() {
   // A. Loading State (During initial auth and session check)
   if (isInitializing) {
     return (
-      <div className="flex items-center justify-center min-h-screen bg-slate-50">
-        <Loader2 className="animate-spin text-indigo-600 w-8 h-8"/>
+      <div className="flex items-center justify-center min-h-screen ds-page">
+        <Loader2 className="animate-spin text-[color:var(--ds-brand-700)] w-8 h-8"/>
       </div>
     );
   }
@@ -221,9 +221,9 @@ export default function App() {
     return (
       <div className="min-h-screen ds-page flex items-center justify-center p-4">
         <div className="w-full max-w-md ds-card ds-section-lg text-center">
-          <h1 className="text-xl font-bold text-slate-800">Initialization error</h1>
-          <p className="text-sm text-slate-500 mt-2">{initError}</p>
-          <button type="button" onClick={() => window.location.reload()} className="mt-5 w-full ds-btn ds-btn-primary py-3 text-white">
+          <h1 className="text-lg font-bold text-[color:var(--ds-text-strong)]">Initialization error</h1>
+          <p className="text-sm text-[color:var(--ds-text-muted)] mt-2">{initError}</p>
+          <button type="button" onClick={() => window.location.reload()} className="mt-5 w-full ds-btn ds-btn-primary py-3 text-[13px] uppercase tracking-wide">
             Retry
           </button>
         </div>
@@ -235,9 +235,9 @@ export default function App() {
     return (
       <div className="min-h-screen ds-page flex items-center justify-center p-4">
         <div className="w-full max-w-md ds-card ds-section-lg text-center">
-          <h1 className="text-xl font-bold text-slate-800">Signed out</h1>
-          <p className="text-sm text-slate-500 mt-2">Session is unavailable. Please refresh to sign in again.</p>
-          <button type="button" onClick={() => window.location.reload()} className="mt-5 w-full ds-btn ds-btn-primary py-3 text-white">
+          <h1 className="text-lg font-bold text-[color:var(--ds-text-strong)]">Signed out</h1>
+          <p className="text-sm text-[color:var(--ds-text-muted)] mt-2">Session is unavailable. Please refresh to sign in again.</p>
+          <button type="button" onClick={() => window.location.reload()} className="mt-5 w-full ds-btn ds-btn-primary py-3 text-[13px] uppercase tracking-wide">
             Refresh
           </button>
         </div>

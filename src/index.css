@@ -1,42 +1,67 @@
-@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600;700&display=swap');
 
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
+/* ---------------------------------------------------------------------------
+   Timetable No. 1 — paper, ink, hairline rules, monospaced time.
+   Color appears only where it means something: yours (petrol), blocked
+   (amber hatch), now (signal orange), live (green). Dark theme re-maps the
+   same tokens to the "departure board"; components never hardcode color.
+--------------------------------------------------------------------------- */
 :root {
-  /* Brand */
-  --ds-brand-900: #00335f;
-  --ds-brand-700: #00407a;
-  --ds-brand-500: #1c7aa0;
-  --ds-brand-300: #52bdec;
-  --ds-brand-100: #e6f3fb;
+  /* Brand (petrol) */
+  --ds-brand-900: #0a4a63;
+  --ds-brand-700: #0e5f80;
+  --ds-brand-500: #3d85a3;
+  --ds-brand-300: #7fb8d4;
+  --ds-brand-100: #e1eef4;
 
   /* Surface */
-  --ds-bg: #f3f6fb;
+  --ds-bg: #f6f6f4;
   --ds-surface: #ffffff;
-  --ds-surface-muted: #f8fafc;
-  --ds-border: #d7e0ec;
+  --ds-surface-muted: #f1f1ee;
+  --ds-border: #cfd1cd;      /* rule-strong: card outlines, 6-hour marks */
+  --ds-rule: #e6e7e4;        /* minor hairline between hour rows */
+  --ds-rule-strong: #cfd1cd;
 
-  /* Text */
-  --ds-text-strong: #1e293b;
-  --ds-text: #334155;
-  --ds-text-muted: #64748b;
-  --ds-text-soft: #94a3b8;
+  /* Text (ink) */
+  --ds-text-strong: #16191d;
+  --ds-text: #2c3136;
+  --ds-text-muted: #565b63;  /* 7.3:1 — helper text */
+  --ds-text-soft: #61676f;   /* ≥4.5:1 on paper AND the muted band — soft never sets a sentence */
 
   /* States */
-  --ds-success-bg: #ecfdf5;
-  --ds-success-text: #0f766e;
-  --ds-warning-bg: #fef9c3;
-  --ds-warning-text: #a16207;
-  --ds-danger-bg: #fee2e2;
-  --ds-danger-text: #b91c1c;
+  --ds-success-bg: #e4f3ec;
+  --ds-success-text: #17714c;
+  --ds-warning-bg: #f5eedb;
+  --ds-warning-text: #8a6116;
+  --ds-warning-line: #e4d9bc;
+  --ds-danger-bg: #fbeae7;
+  --ds-danger-text: #b42318;
+  --ds-on-danger: #ffffff;
+
+  color-scheme: light;
+
+  /* Timetable states */
+  --ds-signal: #d14d1f;      /* now-needle + today tick ONLY */
+  --ds-full-bg: #ecece9;
+  --ds-full-text: #494f56;
+
+  /* Buttons (invert in dark) */
+  --ds-btn-fill: #16191d;
+  --ds-btn-fill-hover: #000000;
+  --ds-btn-text: #ffffff;
+
+  /* Scrim */
+  --ds-scrim: rgba(22, 25, 29, 0.4);
 
   /* Shape */
-  --ds-radius-sm: 0.5rem;
-  --ds-radius-md: 0.75rem;
-  --ds-radius-lg: 1rem;
-  --ds-radius-xl: 1rem;
+  --ds-radius-sm: 0.25rem;
+  --ds-radius-md: 0.375rem;
+  --ds-radius-lg: 0.5rem;
+  --ds-radius-xl: 0.5rem;
 
   /* Spacing scale (4 / 8 / 12 / 16 / 24) */
   --ds-space-1: 0.25rem;
@@ -45,14 +70,110 @@
   --ds-space-4: 1rem;
   --ds-space-5: 1.5rem;
 
-  /* Elevation */
-  --ds-shadow-sm: 0 1px 3px rgba(15, 23, 42, 0.06);
-  --ds-shadow-md: 0 4px 14px rgba(15, 23, 42, 0.08);
+  /* Elevation — borders do the work shadows used to */
+  --ds-shadow-sm: none;
+  --ds-shadow-md: 0 1px 2px rgba(22, 25, 29, 0.05);
+  --ds-shadow-sheet: 0 16px 40px rgba(22, 25, 29, 0.14);
 
   /* Motion */
   --ds-motion-fast: 100ms ease;
   --ds-motion-base: 140ms ease;
   --ds-motion-slow: 180ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+/* The departure board: same components, new ink.
+   Three-state theme: no data-theme attribute follows the OS; an explicit
+   data-theme="light" / "dark" (set by the ThemeToggle) wins in both directions. */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --ds-brand-900: #6fb3d8;
+    --ds-brand-700: #4da3cc;
+    --ds-brand-500: #3d85a3;
+    --ds-brand-300: #7fb8d4;
+    --ds-brand-100: #12303f;
+
+    --ds-bg: #101214;
+    --ds-surface: #16191d;
+    --ds-surface-muted: #1b1e22;
+    --ds-border: #33383d;
+    --ds-rule: #24282c;
+    --ds-rule-strong: #33383d;
+
+    --ds-text-strong: #eceee9;
+    --ds-text: #ccd0ca;
+    --ds-text-muted: #9aa09b;
+    --ds-text-soft: #8a908b;
+
+    --ds-success-bg: #16281f;
+    --ds-success-text: #4cae82;
+    --ds-warning-bg: #2a2417;
+    --ds-warning-text: #d9a94e;
+    --ds-warning-line: #3d351f;
+    --ds-danger-bg: #351b18;
+    --ds-danger-text: #e5695c;
+    --ds-on-danger: #101214;
+
+    color-scheme: dark;
+
+    --ds-signal: #e8632f;
+    --ds-full-bg: #262a2e;
+    --ds-full-text: #b9bfb9;
+
+    --ds-btn-fill: #eceee9;
+    --ds-btn-fill-hover: #ffffff;
+    --ds-btn-text: #101214;
+
+    --ds-scrim: rgba(0, 0, 0, 0.55);
+
+    --ds-shadow-md: 0 1px 2px rgba(0, 0, 0, 0.4);
+    --ds-shadow-sheet: 0 16px 48px rgba(0, 0, 0, 0.5);
+  }
+}
+
+/* Explicit dark choice — identical declarations, outside the media query so
+   it applies regardless of the OS setting. Keep in sync with the block above. */
+:root[data-theme="dark"] {
+  --ds-brand-900: #6fb3d8;
+  --ds-brand-700: #4da3cc;
+  --ds-brand-500: #3d85a3;
+  --ds-brand-300: #7fb8d4;
+  --ds-brand-100: #12303f;
+
+  --ds-bg: #101214;
+  --ds-surface: #16191d;
+  --ds-surface-muted: #1b1e22;
+  --ds-border: #33383d;
+  --ds-rule: #24282c;
+  --ds-rule-strong: #33383d;
+
+  --ds-text-strong: #eceee9;
+  --ds-text: #ccd0ca;
+  --ds-text-muted: #9aa09b;
+  --ds-text-soft: #8a908b;
+
+  --ds-success-bg: #16281f;
+  --ds-success-text: #4cae82;
+  --ds-warning-bg: #2a2417;
+  --ds-warning-text: #d9a94e;
+  --ds-warning-line: #3d351f;
+  --ds-danger-bg: #351b18;
+  --ds-danger-text: #e5695c;
+  --ds-on-danger: #101214;
+
+  color-scheme: dark;
+
+  --ds-signal: #e8632f;
+  --ds-full-bg: #262a2e;
+  --ds-full-text: #b9bfb9;
+
+  --ds-btn-fill: #eceee9;
+  --ds-btn-fill-hover: #ffffff;
+  --ds-btn-text: #101214;
+
+  --ds-scrim: rgba(0, 0, 0, 0.55);
+
+  --ds-shadow-md: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --ds-shadow-sheet: 0 16px 48px rgba(0, 0, 0, 0.5);
 }
 
 @layer base {
@@ -67,8 +188,13 @@
   input:focus-visible,
   textarea:focus-visible,
   select:focus-visible {
-    outline: 2px solid var(--ds-brand-500);
+    outline: 2px solid var(--ds-brand-700);
     outline-offset: 2px;
+  }
+
+  /* Slot cells tile edge-to-edge: draw the ring inside so neighbours never cover it. */
+  .ds-slot-interactive:focus-visible {
+    outline-offset: -2px;
   }
 
   @media (prefers-reduced-motion: reduce) {
@@ -86,7 +212,7 @@
 /* Global baseline */
 body {
   margin: 0;
-  font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   background: var(--ds-bg);
@@ -132,6 +258,14 @@ body {
     isolation: isolate;
   }
 
+  /* Centered 1120px board frame — desktop stops being stretched mobile. */
+  .ds-frame {
+    width: 100%;
+    max-width: 70rem;
+    margin-left: auto;
+    margin-right: auto;
+  }
+
   .ds-topbar-shell {
     background: var(--ds-surface);
     transition: box-shadow var(--ds-motion-fast), background-color var(--ds-motion-fast), border-color var(--ds-motion-fast);
@@ -139,42 +273,38 @@ body {
 
   .ds-topbar-scrolled {
     background: var(--ds-surface);
-    box-shadow: 0 2px 8px rgba(15, 23, 42, 0.06);
+    box-shadow: var(--ds-shadow-md);
   }
 
   .ds-card {
     background: var(--ds-surface);
-    border: 1px solid var(--ds-border);
-    border-radius: var(--ds-radius-xl);
-    box-shadow: var(--ds-shadow-sm);
+    border: 1px solid var(--ds-rule-strong);
+    border-radius: var(--ds-radius-md);
+    box-shadow: none;
   }
 
   .ds-card-muted {
     background: var(--ds-surface-muted);
-    border: 1px solid var(--ds-border);
-    border-radius: var(--ds-radius-lg);
+    border: 1px solid var(--ds-rule);
+    border-radius: var(--ds-radius-md);
   }
 
   .ds-glass-panel {
-    background: var(--ds-surface-muted);
-    border: 1px solid var(--ds-border);
+    background: var(--ds-surface);
+    border: 1px solid var(--ds-rule);
     box-shadow: none;
   }
 
   .ds-instrument-glass-card {
-    background: color-mix(in srgb, var(--ds-inst-accent, #52bdec) 12%, var(--ds-surface) 88%);
-    border: 1px solid color-mix(in srgb, var(--ds-inst-accent, #52bdec) 28%, var(--ds-border) 72%);
+    position: relative;
+    background: var(--ds-surface);
+    border: 1px solid var(--ds-rule-strong);
+    border-top: 2px solid var(--ds-inst-accent, var(--ds-brand-500));
     box-shadow: none;
   }
 
   .ds-instrument-glass-card::before {
-    content: '';
-    display: block;
-    height: 2px;
-    border-radius: 999px;
-    margin-bottom: 0.5rem;
-    background: color-mix(in srgb, var(--ds-inst-accent, #52bdec) 60%, rgba(255, 255, 255, 0.4));
-    opacity: 0.45;
+    content: none;
   }
 
   .ds-instrument-glass-card-clean::before {
@@ -208,7 +338,7 @@ body {
     position: fixed;
     inset: 0;
     z-index: 80;
-    background: rgba(15, 23, 42, 0.45);
+    background: var(--ds-scrim);
     display: flex;
     align-items: center;
     justify-content: center;
@@ -216,12 +346,25 @@ body {
     animation: ds-fade-in var(--ds-motion-base) both;
   }
 
+  /* Bottom-sheet variant: sheet on phones, centered record on larger screens. */
+  .ds-overlay-sheet {
+    align-items: flex-end;
+    padding: 0;
+  }
+
+  @media (min-width: 640px) {
+    .ds-overlay-sheet {
+      align-items: center;
+      padding: 1rem;
+    }
+  }
+
   .ds-modal {
     width: 100%;
     background: var(--ds-surface);
-    border: 1px solid var(--ds-border);
-    border-radius: var(--ds-radius-xl);
-    box-shadow: 0 12px 28px rgba(15, 23, 42, 0.16);
+    border: 1px solid var(--ds-rule-strong);
+    border-radius: var(--ds-radius-lg);
+    box-shadow: var(--ds-shadow-sheet);
   }
 
   .ds-modal-sm {
@@ -230,12 +373,52 @@ body {
 
   .ds-modal-liquid {
     background: var(--ds-surface);
-    border: 1px solid var(--ds-border);
-    box-shadow: 0 12px 28px rgba(15, 23, 42, 0.16);
+    border: 1px solid var(--ds-rule-strong);
+    box-shadow: var(--ds-shadow-sheet);
   }
 
   .ds-modal-md {
     max-width: 30rem;
+  }
+
+  .ds-sheet {
+    animation: ds-sheet-up var(--ds-motion-slow) both;
+  }
+
+  @media (max-width: 639.98px) {
+    .ds-sheet {
+      border-radius: 0.5rem 0.5rem 0 0;
+      border-bottom: none;
+      max-height: 90vh;
+      max-height: 90dvh;
+      overflow-y: auto;
+      padding-bottom: env(safe-area-inset-bottom);
+    }
+  }
+
+  @keyframes ds-sheet-up {
+    from {
+      opacity: 0;
+      transform: translateY(24px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
+  .ds-sheet-grab {
+    width: 2.25rem;
+    height: 4px;
+    border-radius: 2px;
+    background: var(--ds-rule-strong);
+    margin: 0.5rem auto 0.125rem;
+  }
+
+  @media (min-width: 640px) {
+    .ds-sheet-grab {
+      display: none;
+    }
   }
 
   .ds-btn {
@@ -244,7 +427,7 @@ body {
     justify-content: center;
     gap: 0.5rem;
     border: 1px solid transparent;
-    border-radius: var(--ds-radius-lg);
+    border-radius: var(--ds-radius-sm);
     font-weight: 600;
     transition: background-color var(--ds-motion-fast), color var(--ds-motion-fast), border-color var(--ds-motion-fast), box-shadow var(--ds-motion-base), opacity var(--ds-motion-fast), transform var(--ds-motion-fast);
   }
@@ -255,27 +438,25 @@ body {
     transform: none;
   }
 
-  .ds-btn:not(:disabled):hover {
-    transform: translateY(-0.5px);
-  }
-
+  /* Paper never levitates — press depresses, like a stamp meeting paper. */
   .ds-btn:not(:disabled):active {
-    transform: translateY(0);
+    transform: scale(0.985);
+    box-shadow: inset 0 1px 2px rgba(22, 25, 29, 0.08);
   }
 
   .ds-btn-primary {
-    background: var(--ds-brand-700);
-    color: #ffffff;
-    box-shadow: var(--ds-shadow-sm);
+    background: var(--ds-btn-fill);
+    color: var(--ds-btn-text);
+    box-shadow: none;
   }
 
-  .ds-btn-primary:hover {
-    background: var(--ds-brand-900);
+  .ds-btn-primary:not(:disabled):hover {
+    background: var(--ds-btn-fill-hover);
   }
 
   .ds-btn-secondary {
     background: var(--ds-surface);
-    border-color: var(--ds-border);
+    border-color: var(--ds-rule-strong);
     color: var(--ds-text);
     box-shadow: none;
   }
@@ -286,7 +467,7 @@ body {
 
   .ds-btn-glass {
     background: var(--ds-surface);
-    border-color: var(--ds-border);
+    border-color: var(--ds-rule-strong);
     box-shadow: none;
   }
 
@@ -297,7 +478,7 @@ body {
   .ds-btn-warning {
     background: var(--ds-warning-bg);
     color: var(--ds-warning-text);
-    border-color: #fef08a;
+    border-color: var(--ds-warning-line);
   }
 
   .ds-icon-btn-glass {
@@ -306,15 +487,16 @@ body {
     justify-content: center;
     width: 2rem;
     height: 2rem;
-    border-radius: 999px;
-    border: 1px solid var(--ds-border);
+    border-radius: var(--ds-radius-sm);
+    border: 1px solid var(--ds-rule-strong);
     background: var(--ds-surface);
     box-shadow: none;
+    color: var(--ds-text-muted);
   }
 
   .ds-glass-choice {
     background: var(--ds-surface);
-    border-color: var(--ds-border);
+    border-color: var(--ds-rule-strong);
     box-shadow: none;
   }
 
@@ -322,43 +504,48 @@ body {
     background: var(--ds-surface-muted);
   }
 
+  /* Selected choice wears the "yours" dress: petrol tint + left rule. */
   .ds-glass-choice-active {
     background: var(--ds-brand-100);
-    border-color: var(--ds-brand-300);
-    box-shadow: 0 0 0 1px rgba(82, 189, 236, 0.18);
+    border-color: var(--ds-brand-700);
+    box-shadow: inset 2px 0 0 var(--ds-brand-700);
   }
 
+  /* Tabs: underline on a shared hairline baseline, not pills. */
   .ds-tab {
-    border: 1px solid transparent;
-    border-radius: var(--ds-radius-lg);
-    transition: background-color var(--ds-motion-fast), color var(--ds-motion-fast), border-color var(--ds-motion-fast), box-shadow var(--ds-motion-base), transform var(--ds-motion-fast);
+    border: none;
+    border-bottom: 2px solid transparent;
+    border-radius: 0;
+    background: transparent;
+    transition: color var(--ds-motion-fast), border-color var(--ds-motion-fast);
   }
 
   .ds-tab:active {
-    transform: scale(0.99);
+    transform: none;
   }
 
   .ds-tab-active {
-    background: var(--ds-surface);
-    border-color: var(--ds-border);
+    background: transparent;
+    border-bottom-color: var(--ds-brand-700);
     color: var(--ds-text-strong);
-    box-shadow: var(--ds-shadow-sm);
+    box-shadow: none;
   }
 
   .ds-tab-inactive {
-    background: #eaf0f7;
+    background: transparent;
     color: var(--ds-text-muted);
   }
 
   .ds-tab-inactive:hover {
-    background: #e1e9f2;
+    background: transparent;
+    color: var(--ds-text);
   }
 
   .ds-input {
     width: 100%;
     background: var(--ds-surface);
-    border: 1px solid var(--ds-border);
-    border-radius: var(--ds-radius-md);
+    border: 1px solid var(--ds-rule-strong);
+    border-radius: var(--ds-radius-sm);
     color: var(--ds-text);
     transition: border-color var(--ds-motion-fast), box-shadow var(--ds-motion-fast), background-color var(--ds-motion-fast);
   }
@@ -366,23 +553,74 @@ body {
   .ds-input:focus,
   .ds-input:focus-within {
     outline: none;
-    border-color: var(--ds-brand-300);
-    box-shadow: 0 0 0 3px rgba(82, 189, 236, 0.22);
+    border-color: var(--ds-brand-700);
+    box-shadow: 0 0 0 3px rgba(14, 95, 128, 0.18);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--ds-brand-700) 18%, transparent);
     background: var(--ds-surface);
   }
 
   .ds-field-label {
     font-size: 0.625rem;
-    font-weight: 700;
+    font-weight: 600;
     text-transform: uppercase;
     letter-spacing: 0.08em;
-    color: var(--ds-text-soft);
+    color: var(--ds-text-muted);
   }
 
+  /* Microcaps: the one exception to the 11px sentence floor. */
+  .ds-microcaps {
+    font-size: 0.625rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+  }
+
+  /* States are stamped onto the record, never ballooned into pills. */
+  .ds-stamp {
+    display: inline-block;
+    font-size: 0.625rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    padding: 0.125rem 0.375rem;
+    border-radius: 2px;
+    white-space: nowrap;
+  }
+
+  .ds-stamp-full {
+    background: var(--ds-full-bg);
+    color: var(--ds-full-text);
+  }
+
+  .ds-stamp-warning {
+    background: var(--ds-warning-bg);
+    color: var(--ds-warning-text);
+  }
+
+  .ds-stamp-brand {
+    background: var(--ds-brand-100);
+    color: var(--ds-brand-700);
+  }
+
+  .ds-stamp-success {
+    background: var(--ds-success-bg);
+    color: var(--ds-success-text);
+  }
+
+  /* Conflict-blocked spans: 45-degree hatch. */
+  .ds-hatch {
+    background: repeating-linear-gradient(
+      45deg,
+      var(--ds-warning-bg) 0 5px,
+      var(--ds-warning-line) 5px 6px
+    );
+  }
+
+  /* Chips become square-cornered tickets: flat tint + hairline. */
   .ds-chip {
     display: inline-flex;
     align-items: center;
-    border-radius: 999px;
+    border-radius: 2px;
     padding: 0.125rem 0.5rem;
     font-size: 0.625rem;
     font-weight: 600;
@@ -391,22 +629,34 @@ body {
   }
 
   .ds-chip-brand {
-    background: color-mix(in srgb, var(--ds-brand-100) 62%, white 38%);
-    color: color-mix(in srgb, var(--ds-brand-700) 82%, #334155 18%);
-    border-color: color-mix(in srgb, var(--ds-brand-300) 22%, white 78%);
-    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.7);
+    background: var(--ds-brand-100);
+    color: var(--ds-brand-700);
+    border-color: transparent;
+    box-shadow: none;
   }
 
   .ds-chip-warning {
-    background: color-mix(in srgb, var(--ds-warning-bg) 60%, white 40%);
-    color: color-mix(in srgb, var(--ds-warning-text) 84%, #334155 16%);
-    border-color: color-mix(in srgb, #facc15 22%, white 78%);
+    background: var(--ds-warning-bg);
+    color: var(--ds-warning-text);
+    border-color: var(--ds-warning-line);
   }
 
   .ds-chip-danger {
-    background: color-mix(in srgb, var(--ds-danger-bg) 60%, white 40%);
-    color: color-mix(in srgb, var(--ds-danger-text) 84%, #334155 16%);
-    border-color: color-mix(in srgb, #ef4444 20%, white 80%);
+    background: var(--ds-danger-bg);
+    color: var(--ds-danger-text);
+    border-color: transparent;
+  }
+
+  /* Count badge on tabs and rows. */
+  .ds-ticket {
+    display: inline-block;
+    font-size: 0.625rem;
+    font-variant-numeric: tabular-nums;
+    color: var(--ds-text-muted);
+    border: 1px solid var(--ds-rule-strong);
+    border-radius: 2px;
+    padding: 0 0.25rem;
+    line-height: 1.4;
   }
 
   .ds-animate-enter {
@@ -426,17 +676,83 @@ body {
     animation: ds-scale-in var(--ds-motion-slow) both;
   }
 
+  /* Retired pulse — the now-needle carries "now"; kept as a quiet ring for
+     any residual call sites. */
   .ds-current-hour {
-    animation: ds-current-hour-pulse 2.8s ease-in-out infinite;
+    animation: none;
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--ds-signal) 35%, transparent);
   }
 
-  @keyframes ds-current-hour-pulse {
+  /* The only saturated element in the product: 2px signal rule at the true
+     minute, with a tick reaching into the time gutter. */
+  .ds-now-needle {
+    position: absolute;
+    left: 0;
+    right: 0;
+    height: 2px;
+    background: var(--ds-signal);
+    pointer-events: none;
+    z-index: 5;
+  }
+
+  .ds-now-needle::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    top: -2px;
+    width: 5px;
+    height: 6px;
+    background: var(--ds-signal);
+  }
+
+  /* The toolbar's bottom hairline doubles as the sync indicator. */
+  .ds-sync-rule {
+    position: relative;
+    height: 1px;
+    background: var(--ds-rule-strong);
+    overflow: visible;
+  }
+
+  .ds-sync-rule-active::after {
+    content: '';
+    position: absolute;
+    top: -1px;
+    left: -10%;
+    width: 4rem;
+    height: 2px;
+    background: var(--ds-brand-700);
+    animation: ds-sync-sweep 1.6s linear infinite;
+  }
+
+  @keyframes ds-sync-sweep {
+    from {
+      left: -10%;
+    }
+    to {
+      left: 104%;
+    }
+  }
+
+  .ds-live-dot {
+    display: inline-block;
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--ds-success-text);
+  }
+
+  .ds-live-dot-sync {
+    background: var(--ds-brand-700);
+    animation: ds-live-pulse 1.2s ease-in-out infinite;
+  }
+
+  @keyframes ds-live-pulse {
     0%,
     100% {
-      box-shadow: inset 0 0 0 1px rgba(82, 189, 236, 0.28);
+      opacity: 1;
     }
     50% {
-      box-shadow: inset 0 0 0 1px rgba(82, 189, 236, 0.6);
+      opacity: 0.35;
     }
   }
 
@@ -446,18 +762,19 @@ body {
 
   @media (hover: hover) and (pointer: fine) {
     .ds-slot-interactive:hover {
-      transform: translateY(-0.5px);
-      box-shadow: inset 0 0 0 1px rgba(148, 163, 184, 0.22);
+      transform: none;
+      box-shadow: inset 0 0 0 1px var(--ds-rule-strong);
     }
   }
 
   .ds-slot-interactive:active {
-    transform: translateY(0);
+    transform: scale(0.985);
+    box-shadow: inset 0 1px 2px rgba(22, 25, 29, 0.08);
   }
 
   .ds-glass-inline {
     background: var(--ds-surface);
-    border: 1px solid var(--ds-border);
+    border: 1px solid var(--ds-rule);
     box-shadow: none;
   }
 
@@ -467,16 +784,18 @@ body {
   }
 
   .ds-week-header-cell {
-    background: #eef5fb;
-    border-radius: 0 0 10px 10px;
+    background: var(--ds-surface);
+    border-bottom: 1px solid var(--ds-rule-strong);
+    border-radius: 0;
     overflow: hidden;
   }
 
   .ds-instrument-header-cell {
     position: relative;
     isolation: isolate;
-    background: #eef5fb;
-    border-radius: 0 0 10px 10px;
+    background: var(--ds-surface);
+    border-bottom: 1px solid var(--ds-rule-strong);
+    border-radius: 0;
     overflow: hidden;
   }
 
@@ -486,38 +805,39 @@ body {
     left: 0;
     right: 0;
     top: 0;
-    height: 1.5px;
-    background: color-mix(in srgb, var(--ds-inst-accent, #52bdec) 42%, white 58%);
-    opacity: 0.65;
+    height: 2px;
+    background: var(--ds-inst-accent, var(--ds-brand-500));
+    opacity: 1;
     pointer-events: none;
   }
 
   .ds-glass-row {
     background: var(--ds-surface-muted);
-    border: 1px solid var(--ds-border);
+    border: 1px solid var(--ds-rule);
     box-shadow: none;
   }
 
   .ds-glass-warning {
-    background: #fef3c7;
-    border: 1px solid #fcd34d;
+    background: var(--ds-warning-bg);
+    border: 1px solid var(--ds-warning-line);
     box-shadow: none;
   }
 
+  /* Demoted from amber pill to quiet paper button; amber belongs to warnings. */
   .ds-fab-report {
-    color: #9a5800;
-    border: 1px solid #fcd34d;
-    background: #fef3c7;
-    box-shadow: var(--ds-shadow-sm);
-    transition: transform var(--ds-motion-fast), box-shadow var(--ds-motion-base), background-color var(--ds-motion-fast);
+    color: var(--ds-text-muted);
+    border: 1px solid var(--ds-rule-strong);
+    background: var(--ds-surface);
+    box-shadow: var(--ds-shadow-md);
+    transition: background-color var(--ds-motion-fast), color var(--ds-motion-fast), transform var(--ds-motion-fast);
   }
 
   .ds-fab-overview {
     background: var(--ds-surface);
-    color: #0f3b5a;
-    border: 1px solid var(--ds-border);
+    color: var(--ds-text-strong);
+    border: 1px solid var(--ds-text-strong);
     box-shadow: var(--ds-shadow-md);
-    transition: transform var(--ds-motion-fast), box-shadow var(--ds-motion-base), background-color var(--ds-motion-fast);
+    transition: background-color var(--ds-motion-fast), transform var(--ds-motion-fast);
   }
 
   .ds-fab-overview-launch {
@@ -548,30 +868,29 @@ body {
 
   @media (hover: hover) and (pointer: fine) {
     .ds-fab-report:hover {
-      transform: translateY(-1px) scale(1.01);
-      background: #fde68a;
-      box-shadow: var(--ds-shadow-md);
+      transform: none;
+      background: var(--ds-surface-muted);
+      color: var(--ds-text);
     }
 
     .ds-fab-overview:hover {
-      transform: translateY(-1px) scale(1.01);
+      transform: none;
       background: var(--ds-surface-muted);
     }
   }
 
-  .ds-fab-report:active {
-    transform: translateY(0) scale(0.995);
-  }
-
+  .ds-fab-report:active,
   .ds-fab-overview:active {
-    transform: translateY(0);
+    transform: scale(0.985);
   }
 
   @media (prefers-reduced-motion: reduce) {
     .ds-animate-overview-launch,
     .ds-fab-overview-launch,
     .ds-fab-overview,
-    .ds-fab-report {
+    .ds-fab-report,
+    .ds-sync-rule-active::after,
+    .ds-live-dot-sync {
       animation: none;
     }
   }

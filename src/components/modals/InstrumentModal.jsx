@@ -45,17 +45,17 @@ const InstrumentModal = ({ isOpen, onClose, onSave, initialData, existingInstrum
     setSelectedConflicts(prev => prev.includes(id) ? prev.filter(cid => cid !== id) : [...prev, id]);
   };
 
-  const handleSubmit = (e) => { 
-    e.preventDefault(); 
-    if (!name.trim()) return; 
+  const handleSubmit = (e) => {
+    e.preventDefault();
+    if (!name.trim()) return;
     const subOptions = Array.from(new Set(subOptionsStr.split(/[,，\n]/).map(s => s.trim()).filter(s => s)));
-    onSave({ name, location, maxCapacity: Number(capacity), color, subOptions, conflicts: selectedConflicts, isUnderMaintenance }); 
+    onSave({ name, location, maxCapacity: Number(capacity), color, subOptions, conflicts: selectedConflicts, isUnderMaintenance });
   };
 
   return (
     <div className="ds-overlay" role="presentation">
-      <div className="ds-modal ds-modal-md ds-modal-liquid ds-section ds-animate-modal overflow-y-auto max-h-[90vh]" role="dialog" aria-modal="true" aria-labelledby="instrument-modal-title">
-        <h3 id="instrument-modal-title" className="text-lg font-bold mb-4 text-slate-800">{initialData ? 'Edit instrument' : 'Add instrument'}</h3>
+      <div className="ds-modal ds-modal-md ds-section ds-animate-modal overflow-y-auto max-h-[90vh]" role="dialog" aria-modal="true" aria-labelledby="instrument-modal-title">
+        <h3 id="instrument-modal-title" className="text-[15px] font-bold mb-4 text-[color:var(--ds-text-strong)]">{initialData ? 'Edit instrument' : 'Add instrument'}</h3>
         <form onSubmit={handleSubmit} className="space-y-4">
           <button
             type="button"
@@ -63,20 +63,23 @@ const InstrumentModal = ({ isOpen, onClose, onSave, initialData, existingInstrum
             aria-checked={isUnderMaintenance}
             aria-label="Toggle maintenance mode"
             onClick={() => setIsUnderMaintenance(!isUnderMaintenance)}
-            className={`w-full p-4 rounded-xl border cursor-pointer ds-transition flex items-center justify-between ds-glass-panel ${isUnderMaintenance ? 'border-orange-300/80 bg-orange-50/70' : ''}`}
+            className="ds-card-muted w-full p-4 cursor-pointer ds-transition flex items-center justify-between text-left"
           >
             <div className="flex items-center gap-3">
-              <div className={`p-2 rounded-full ${isUnderMaintenance ? 'bg-orange-500 text-white' : 'bg-slate-200 text-slate-500'}`}><Wrench className="w-5 h-5"/></div>
-              <div><div className="font-bold text-sm">Maintenance</div><div className="text-[10px] uppercase">Blocks bookings</div></div>
+              <div className={`p-2 rounded-[4px] border ${isUnderMaintenance ? 'bg-[var(--ds-warning-bg)] border-[var(--ds-warning-line)] text-[color:var(--ds-warning-text)]' : 'bg-[var(--ds-surface)] border-[var(--ds-rule-strong)] text-[color:var(--ds-text-soft)]'}`}><Wrench className="w-5 h-5"/></div>
+              <div>
+                <div className="text-[13px] font-semibold text-[color:var(--ds-text-strong)]">Maintenance</div>
+                <div className="ds-microcaps text-[color:var(--ds-text-muted)]">Blocks bookings</div>
+              </div>
             </div>
-            <div className={`w-10 h-5 rounded-full relative ${isUnderMaintenance ? 'bg-orange-500' : 'bg-slate-300'}`}><div className={`absolute top-1 w-3 h-3 bg-white rounded-full transition-all ${isUnderMaintenance ? 'left-6' : 'left-1'}`} /></div>
+            <div className={`w-10 h-5 rounded-[2px] relative shrink-0 ${isUnderMaintenance ? 'bg-[var(--ds-warning-text)]' : 'bg-[var(--ds-rule-strong)]'}`}><div className={`absolute top-1 w-3 h-3 bg-[var(--ds-surface)] rounded-[1px] transition-all ${isUnderMaintenance ? 'left-6' : 'left-1'}`} /></div>
           </button>
 
           <div>
             <label htmlFor="instrument-name" className="ds-field-label">Instrument name</label>
             <input id="instrument-name" autoFocus type="text" value={name} onChange={e=>setName(e.target.value)} className="ds-input mt-1 p-3"/>
           </div>
-          
+
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label htmlFor="instrument-location" className="ds-field-label">Location</label>
@@ -98,29 +101,29 @@ const InstrumentModal = ({ isOpen, onClose, onSave, initialData, existingInstrum
               className="ds-input mt-1 p-3 resize-none"
               placeholder="e.g. Hydro MV, Dry Unit"
             />
-            <div className="text-[11px] text-slate-500 mt-1">
+            <div className="text-[11px] text-[color:var(--ds-text-muted)] mt-1">
               Store unit choices for bookings. Capacity and conflicts still apply to the instrument itself.
             </div>
           </div>
 
           <div>
             <label className="ds-field-label flex items-center gap-1 mb-2"><Link2 className="w-3 h-3"/> Conflict instruments</label>
-            <div className="ds-card-muted ds-glass-panel p-3 max-h-32 overflow-y-auto space-y-1" role="group" aria-label="Conflict instruments">
+            <div className="ds-card-muted p-3 max-h-32 overflow-y-auto space-y-1" role="group" aria-label="Conflict instruments">
               {existingInstruments.filter(i => i.id !== (initialData?.id)).map(inst => (
-                <button key={inst.id} type="button" onClick={() => toggleConflict(inst.id)} aria-pressed={selectedConflicts.includes(inst.id)} className={`w-full flex items-center gap-2 p-2 rounded-lg cursor-pointer transition text-left ${selectedConflicts.includes(inst.id) ? 'bg-red-50 text-red-700 font-bold' : 'hover:bg-white text-slate-600'}`}>
-                  <div className={`w-4 h-4 rounded border flex items-center justify-center ${selectedConflicts.includes(inst.id) ? 'border-red-500 bg-red-500' : 'border-slate-300'}`}>{selectedConflicts.includes(inst.id) && <CheckCircle2 className="w-3 h-3 text-white"/>}</div>
+                <button key={inst.id} type="button" onClick={() => toggleConflict(inst.id)} aria-pressed={selectedConflicts.includes(inst.id)} className={`w-full flex items-center gap-2 p-2 rounded-[4px] cursor-pointer ds-transition text-left ${selectedConflicts.includes(inst.id) ? 'bg-[var(--ds-danger-bg)] text-[color:var(--ds-danger-text)] font-semibold' : 'hover:bg-[var(--ds-surface)] text-[color:var(--ds-text-muted)]'}`}>
+                  <div className={`w-4 h-4 rounded-[2px] border flex items-center justify-center ${selectedConflicts.includes(inst.id) ? 'border-[var(--ds-danger-text)] bg-[var(--ds-danger-text)]' : 'border-[var(--ds-rule-strong)]'}`}>{selectedConflicts.includes(inst.id) && <CheckCircle2 className="w-3 h-3 text-[color:var(--ds-surface)]"/>}</div>
                   <span className="text-xs">{inst.name}</span>
                 </button>
               ))}
               {existingInstruments.filter(i => i.id !== (initialData?.id)).length === 0 && (
-                <div className="text-xs text-slate-400">No other instruments available for conflicts.</div>
+                <div className="text-[11px] text-[color:var(--ds-text-muted)]">No other instruments available for conflicts.</div>
               )}
             </div>
           </div>
 
           <div>
             <label className="ds-field-label">Color theme</label>
-            <div className="flex gap-2 mt-2" role="radiogroup" aria-label="Color theme filter">
+            <div className="flex gap-4 mt-2 border-b border-[var(--ds-rule)]" role="radiogroup" aria-label="Color theme filter">
               {[
                 { id: 'all', label: 'All' },
                 { id: 'solid', label: 'Solid' },
@@ -131,19 +134,19 @@ const InstrumentModal = ({ isOpen, onClose, onSave, initialData, existingInstrum
                   type="button"
                   onClick={() => setThemeFilter(opt.id)}
                   aria-pressed={themeFilter === opt.id}
-                  className={`px-2.5 py-1 ds-tab text-[10px] font-bold border ${themeFilter === opt.id ? 'ds-tab-active' : 'ds-tab-inactive'}`}
+                  className={`ds-tab px-1 pb-1.5 text-[11px] font-semibold ${themeFilter === opt.id ? 'ds-tab-active' : 'ds-tab-inactive'}`}
                 >
                   {opt.label}
                 </button>
               ))}
             </div>
-            <div className="mt-2 p-2 ds-card-muted ds-glass-panel">
-              <div className="text-[10px] text-slate-400 font-bold uppercase mb-1">Preview</div>
-              <div className={`h-10 rounded-lg px-3 flex items-center text-white font-bold text-sm ${selectedTheme.darkBg}`}>
+            <div className="mt-2 p-2 ds-card-muted">
+              <div className="ds-microcaps text-[color:var(--ds-text-muted)] mb-1">Preview</div>
+              <div className="h-10 rounded-[4px] px-3 flex items-center text-white font-bold text-sm" style={{ background: selectedTheme.accent }}>
                 {selectedTheme.label}
               </div>
             </div>
-            <div className="grid grid-cols-4 gap-2 mt-2 max-h-48 overflow-y-auto pr-1">
+            <div className="flex flex-wrap gap-2 mt-3 max-h-48 overflow-y-auto pr-1">
               {visibleThemes.map(c => (
                 <button
                   key={c.id}
@@ -151,23 +154,19 @@ const InstrumentModal = ({ isOpen, onClose, onSave, initialData, existingInstrum
                   onClick={() => setColor(c.id)}
                   aria-pressed={color === c.id}
                   aria-label={`Select color theme ${c.label || c.id}`}
-                  className={`p-1.5 rounded-xl cursor-pointer border transition ${color === c.id ? 'border-slate-500 ring-2 ring-slate-200' : 'border-slate-200 hover:border-slate-300'}`}
+                  className={`h-6 w-6 rounded-[2px] flex items-center justify-center ${color === c.id ? 'ring-2 ring-[var(--ds-text-strong)] ring-offset-1 ring-offset-[var(--ds-surface)]' : 'ring-1 ring-[var(--ds-rule-strong)]'}`}
+                  style={{ background: c.accent }}
                   title={c.label || c.id}
                 >
-                  <div className="w-full">
-                    <div className={`h-8 rounded-md flex items-center justify-center ${c.darkBg}`}>
-                      {color === c.id && <CheckCircle2 className="w-4 h-4 text-white"/>}
-                    </div>
-                    <div className="text-[10px] text-slate-600 mt-1 truncate">{c.label}</div>
-                  </div>
+                  {color === c.id && <CheckCircle2 className="w-3.5 h-3.5 text-white"/>}
                 </button>
               ))}
             </div>
-            <div className="text-[11px] text-slate-500 mt-2">Selected: {selectedTheme.label || color}</div>
+            <div className="text-[11px] text-[color:var(--ds-text-muted)] mt-2">Selected: {selectedTheme.label || color}</div>
           </div>
           <div className="flex gap-3 mt-4">
-            <button type="button" onClick={onClose} className="flex-1 py-3 ds-btn ds-btn-secondary ds-btn-glass">Cancel</button>
-            <button type="submit" className="flex-1 py-3 ds-btn ds-btn-primary text-white">Save</button>
+            <button type="button" onClick={onClose} className="flex-1 py-3 ds-btn ds-btn-secondary">Cancel</button>
+            <button type="submit" className="flex-1 py-3 ds-btn ds-btn-primary">Save</button>
           </div>
         </form>
       </div>

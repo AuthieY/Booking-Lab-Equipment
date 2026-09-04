@@ -3,8 +3,8 @@ import {
   collection, query, where, onSnapshot, addDoc, deleteDoc, updateDoc, doc, serverTimestamp, orderBy, limit, Timestamp,
   getDocs, writeBatch, arrayRemove
 } from 'firebase/firestore';
-import { 
-  ShieldCheck, LogOut, Settings, Book, History, Plus, Pencil, Trash2, MapPin, Wrench, MessageSquare, ChevronDown, ChevronRight
+import {
+  ShieldCheck, LogOut, Settings, Book, History, Plus, Pencil, Trash2, MapPin, ChevronDown, ChevronRight
 } from 'lucide-react';
 import { db, appId, addAuditLog } from '../../api/firebase';
 import { formatTime, getColorStyle } from '../../utils/helpers';
@@ -13,6 +13,7 @@ import { measurePerf } from '../../utils/perf';
 import InstrumentModal from '../modals/InstrumentModal';
 import ConfirmDialog from '../common/ConfirmDialog';
 import ToastStack from '../common/ToastStack';
+import ThemeToggle from '../common/ThemeToggle';
 import { useToast } from '../../hooks/useToast';
 
 const isBookingActivityLog = (log) => {
@@ -23,7 +24,7 @@ const isBookingActivityLog = (log) => {
 const AdminDashboard = ({ labName, onLogout }) => {
   const [instruments, setInstruments] = useState([]);
   const [logs, setLogs] = useState([]);
-  const [notes, setNotes] = useState([]); 
+  const [notes, setNotes] = useState([]);
   const [openedInstrumentNotes, setOpenedInstrumentNotes] = useState({});
   const [expandedNotesByInstrument, setExpandedNotesByInstrument] = useState({});
   const [openedLogMonths, setOpenedLogMonths] = useState({});
@@ -32,13 +33,13 @@ const AdminDashboard = ({ labName, onLogout }) => {
   const [hasLoadedInstruments, setHasLoadedInstruments] = useState(false);
   const [hasLoadedLogs, setHasLoadedLogs] = useState(false);
   const [hasLoadedNotes, setHasLoadedNotes] = useState(false);
-  const [activeTab, setActiveTab] = useState('INSTRUMENTS'); 
+  const [activeTab, setActiveTab] = useState('INSTRUMENTS');
   const [showInstrumentModal, setShowInstrumentModal] = useState(false);
-  const [editingInstrument, setEditingInstrument] = useState(null); 
+  const [editingInstrument, setEditingInstrument] = useState(null);
   const [instrumentToDelete, setInstrumentToDelete] = useState(null);
   const [noteToDelete, setNoteToDelete] = useState(null);
   const { toasts, pushToast, dismissToast } = useToast();
-  
+
   useEffect(() => {
     setHasLoadedInstruments(false);
     setHasLoadedLogs(false);
@@ -69,7 +70,7 @@ const AdminDashboard = ({ labName, onLogout }) => {
         pushToast('Unable to load instruments.', 'error');
       }
     );
-    
+
     // 2) Logs stream
     const cutoff = new Date();
     cutoff.setMonth(cutoff.getMonth() - 2);
@@ -328,69 +329,73 @@ const AdminDashboard = ({ labName, onLogout }) => {
 
   return (
     <div className="min-h-screen ds-page font-sans ds-animate-enter-fast">
-        <header className="bg-slate-800 text-white px-4 md:px-6 py-3 md:py-4 flex justify-between items-center sticky top-0 z-50 shadow-sm">
-            <div className="flex items-center gap-3">
-              <div className="bg-slate-700 p-2 rounded-lg"><ShieldCheck className="w-6 h-6 text-yellow-400"/></div>
-              <div><h1 className="font-bold text-lg leading-tight">{labName}</h1><p className="text-xs text-slate-400">Admin workspace</p></div>
+        {/* Header stays ink in both themes — theme-invariant literals are intentional. */}
+        <header className="bg-[#16191d] text-white px-4 md:px-6 py-3 md:py-4 flex justify-between items-center sticky top-0 z-50">
+            <div className="flex items-center gap-3 min-w-0">
+              <ShieldCheck className="w-5 h-5 text-white shrink-0"/>
+              <div className="flex items-center gap-2.5 min-w-0">
+                <h1 className="text-sm font-semibold leading-tight text-white truncate">{labName}</h1>
+                <span className="ds-stamp shrink-0" style={{ backgroundColor: 'rgba(127, 184, 212, 0.15)', color: '#7fb8d4' }}>Admin</span>
+              </div>
             </div>
-            <button type="button" aria-label="Sign out from admin workspace" onClick={onLogout} className="text-slate-300 hover:text-white flex items-center gap-2 text-sm"><LogOut className="w-4 h-4"/> Sign out</button>
+            <div className="flex items-center gap-3 shrink-0">
+              <ThemeToggle variant="ink" />
+              <button type="button" aria-label="Sign out from admin workspace" onClick={onLogout} className="text-white/70 hover:text-white flex items-center gap-2 text-xs font-medium shrink-0 ds-transition"><LogOut className="w-4 h-4"/> Sign out</button>
+            </div>
         </header>
 
-        <div className="p-4 md:p-6 max-w-5xl mx-auto">
-            {/* Tab navigation */}
-            <div className="flex gap-3 mb-6 overflow-x-auto no-scrollbar" role="tablist" aria-label="Admin sections">
-                <button type="button" role="tab" aria-selected={activeTab==='INSTRUMENTS'} onClick={()=>setActiveTab('INSTRUMENTS')} className={`flex-1 min-w-[140px] p-4 ds-tab flex items-center justify-center gap-3 font-bold ${activeTab==='INSTRUMENTS'?'ds-tab-active':'ds-tab-inactive'}`}><Settings className="w-5 h-5"/> Instruments</button>
-                <button type="button" role="tab" aria-selected={activeTab==='NOTEBOOK'} onClick={()=>setActiveTab('NOTEBOOK')} className={`flex-1 min-w-[140px] p-4 ds-tab flex items-center justify-center gap-3 font-bold ${activeTab==='NOTEBOOK'?'ds-tab-active':'ds-tab-inactive'}`}><Book className="w-5 h-5"/> Reports</button>
-                <button type="button" role="tab" aria-selected={activeTab==='LOGS'} onClick={()=>setActiveTab('LOGS')} className={`flex-1 min-w-[140px] p-4 ds-tab flex items-center justify-center gap-3 font-bold ${activeTab==='LOGS'?'ds-tab-active':'ds-tab-inactive'}`}><History className="w-5 h-5"/> Logs</button>
+        <div className="p-4 md:p-6 ds-frame">
+            {/* Tab navigation: underline tabs on a shared hairline baseline */}
+            <div className="flex border-b border-[var(--ds-rule-strong)] mb-6" role="tablist" aria-label="Admin sections">
+                <button type="button" role="tab" aria-selected={activeTab==='INSTRUMENTS'} onClick={()=>setActiveTab('INSTRUMENTS')} className={`flex-1 py-3 ds-tab flex items-center justify-center gap-2 text-xs font-semibold ${activeTab==='INSTRUMENTS'?'ds-tab-active':'ds-tab-inactive'}`}><Settings className="w-4 h-4"/> <span>Instruments</span>{hasLoadedInstruments && <span className="ds-ticket font-data">{instruments.length}</span>}</button>
+                <button type="button" role="tab" aria-selected={activeTab==='NOTEBOOK'} onClick={()=>setActiveTab('NOTEBOOK')} className={`flex-1 py-3 ds-tab flex items-center justify-center gap-2 text-xs font-semibold ${activeTab==='NOTEBOOK'?'ds-tab-active':'ds-tab-inactive'}`}><Book className="w-4 h-4"/> <span>Reports</span>{hasLoadedNotes && <span className="ds-ticket font-data">{notes.length}</span>}</button>
+                <button type="button" role="tab" aria-selected={activeTab==='LOGS'} onClick={()=>setActiveTab('LOGS')} className={`flex-1 py-3 ds-tab flex items-center justify-center gap-2 text-xs font-semibold ${activeTab==='LOGS'?'ds-tab-active':'ds-tab-inactive'}`}><History className="w-4 h-4"/> <span>Logs</span>{hasLoadedLogs && <span className="ds-ticket font-data">{logs.length}</span>}</button>
             </div>
 
             {/* 1) Instruments tab */}
             {activeTab === 'INSTRUMENTS' && (
-                <div className="ds-card p-6">
-                    <div className="flex justify-between items-center mb-6"><h2 className="text-xl font-bold text-slate-800">Instruments ({instruments.length})</h2><button type="button" onClick={()=>{setEditingInstrument(null); setShowInstrumentModal(true);}} className="ds-btn ds-btn-primary px-4 py-2 text-sm"><Plus className="w-4 h-4"/> Add instrument</button></div>
-                    <div className="space-y-3">
+                <div className="ds-card overflow-hidden">
+                    <div className="flex justify-between items-center gap-3 px-4 md:px-5 py-3 border-b border-[var(--ds-rule)]">
+                      <h2 className="text-[13px] font-semibold text-[color:var(--ds-text-strong)] flex items-center gap-2">Instruments {hasLoadedInstruments && <span className="ds-ticket font-data">{instruments.length}</span>}</h2>
+                      <button type="button" onClick={()=>{setEditingInstrument(null); setShowInstrumentModal(true);}} className="ds-btn ds-btn-primary px-3 py-1.5 text-xs shrink-0"><Plus className="w-4 h-4"/> <span className="hidden sm:inline">Add instrument</span><span className="sm:hidden">Add</span></button>
+                    </div>
+                    <div>
                       {!hasLoadedInstruments && <div className="sr-only" role="status" aria-live="polite">Loading instruments</div>}
                       {!hasLoadedInstruments && Array.from({ length: 4 }, (_, index) => (
-                        <div key={`inst-skeleton-${index}`} className="flex items-center justify-between p-4 ds-card-muted animate-pulse">
-                          <div className="flex items-center gap-4">
-                            <div className="w-12 h-12 rounded-lg bg-slate-200" />
-                            <div>
-                              <div className="h-4 w-36 bg-slate-200 rounded mb-2" />
-                              <div className="h-3 w-20 bg-slate-100 rounded" />
-                            </div>
+                        <div key={`inst-skeleton-${index}`} className="flex items-center justify-between px-4 md:px-5 py-3 border-b border-[var(--ds-rule)] last:border-b-0 animate-pulse">
+                          <div>
+                            <div className="h-3.5 w-36 bg-[var(--ds-surface-muted)] rounded-sm mb-2" />
+                            <div className="h-3 w-20 bg-[var(--ds-surface-muted)] rounded-sm" />
                           </div>
                           <div className="flex gap-2">
-                            <div className="w-9 h-9 rounded-lg bg-slate-100" />
-                            <div className="w-9 h-9 rounded-lg bg-slate-100" />
+                            <div className="w-8 h-8 rounded bg-[var(--ds-surface-muted)]" />
+                            <div className="w-8 h-8 rounded bg-[var(--ds-surface-muted)]" />
                           </div>
                         </div>
                       ))}
                       {hasLoadedInstruments && instruments.length === 0 && (
-                        <div className="ds-card-muted p-6 text-center">
-                          <h3 className="text-slate-600 font-bold">No instruments yet</h3>
-                          <p className="text-slate-400 text-xs mt-1">Create your first instrument to start taking bookings.</p>
+                        <div className="p-6 text-center">
+                          <h3 className="text-[13px] font-semibold text-[color:var(--ds-text-muted)]">No instruments yet</h3>
+                          <p className="text-[11px] text-[color:var(--ds-text-soft)] mt-1">Create your first instrument to start taking bookings.</p>
                         </div>
                       )}
                       {hasLoadedInstruments && instruments.map(inst => (
-                        <div key={inst.id} className="flex items-center justify-between p-4 ds-card-muted hover:border-slate-300">
-                          <div className="flex items-center gap-4">
-                            <div className={`w-12 h-12 rounded-lg flex items-center justify-center ${getColorStyle(inst.color).bg} ${getColorStyle(inst.color).text} font-bold text-xl relative`}>
-                              {inst.name[0]}
-                              {inst.isUnderMaintenance && <div className="absolute -top-1 -right-1 bg-orange-500 p-0.5 rounded-full border-2 border-white"><Wrench className="w-3 h-3 text-white"/></div>}
+                        <div key={inst.id} className="flex items-center justify-between gap-3 pl-3 pr-3 md:pr-4 py-3 border-b border-[var(--ds-rule)] last:border-b-0 border-l-2" style={{ borderLeftColor: getColorStyle(inst.color).accent || 'var(--ds-brand-500)' }}>
+                          <div className="min-w-0">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span className="text-[13px] font-semibold text-[color:var(--ds-text-strong)]">{inst.name}</span>
+                              {inst.isUnderMaintenance && <span className="ds-stamp ds-stamp-warning">Maint</span>}
                             </div>
-                            <div>
-                              <div className="font-bold text-slate-800 flex items-center gap-2">{inst.name} {inst.isUnderMaintenance && <span className="text-[9px] bg-orange-100 text-orange-600 px-1.5 py-0.5 rounded font-black uppercase">Maint</span>}</div>
-                              <div className="text-xs text-slate-500 flex items-center gap-1"><MapPin className="w-3 h-3"/> {inst.location || 'No location'}</div>
-                              {Array.isArray(inst.subOptions) && inst.subOptions.length > 0 && (
-                                <div className="text-[11px] text-slate-400 mt-1">
-                                  Units: {inst.subOptions.join(', ')}
-                                </div>
-                              )}
-                            </div>
+                            <div className="text-[11px] text-[color:var(--ds-text-muted)] flex items-center gap-1 mt-0.5"><MapPin className="w-3 h-3"/> {inst.location || 'No location'}</div>
+                            {Array.isArray(inst.subOptions) && inst.subOptions.length > 0 && (
+                              <div className="text-[11px] text-[color:var(--ds-text-soft)] mt-0.5">
+                                Units: {inst.subOptions.join(', ')}
+                              </div>
+                            )}
                           </div>
-                          <div className="flex gap-2">
-                              <button type="button" aria-label={`Edit ${inst.name}`} onClick={()=>{setEditingInstrument(inst); setShowInstrumentModal(true);}} className="p-2 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition"><Pencil className="w-5 h-5"/></button>
-                              <button type="button" aria-label={`Delete ${inst.name}`} onClick={()=>handleDeleteInstrument(inst.id, inst.name)} className="p-2 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition"><Trash2 className="w-5 h-5"/></button>
+                          <div className="flex gap-1 shrink-0">
+                              <button type="button" aria-label={`Edit ${inst.name}`} onClick={()=>{setEditingInstrument(inst); setShowInstrumentModal(true);}} className="p-2 rounded text-[color:var(--ds-text-soft)] hover:text-[color:var(--ds-brand-700)] hover:bg-[var(--ds-surface-muted)] ds-transition"><Pencil className="w-4 h-4"/></button>
+                              <button type="button" aria-label={`Delete ${inst.name}`} onClick={()=>handleDeleteInstrument(inst.id, inst.name)} className="p-2 rounded text-[color:var(--ds-text-soft)] hover:text-[color:var(--ds-danger-text)] hover:bg-[var(--ds-danger-bg)] ds-transition"><Trash2 className="w-4 h-4"/></button>
                           </div>
                         </div>
                       ))}
@@ -402,23 +407,20 @@ const AdminDashboard = ({ labName, onLogout }) => {
             {activeTab === 'NOTEBOOK' && (
                 <div className="space-y-4">
                     <div className="ds-card p-4 mb-2">
-                      <h2 className="text-lg font-bold text-slate-800 flex items-center gap-2"><Book className="w-5 h-5 text-indigo-500"/> Latest reports by instrument</h2>
-                      <p className="text-xs text-slate-400 mt-1">Click an instrument to open its latest report, then use "See more" for older reports.</p>
+                      <h2 className="text-[13px] font-semibold text-[color:var(--ds-text-strong)] flex items-center gap-2"><Book className="w-4 h-4 text-[color:var(--ds-brand-700)]"/> Latest reports by instrument</h2>
+                      <p className="text-[11px] text-[color:var(--ds-text-muted)] mt-1">Click an instrument to open its latest report, then use "See more" for older reports.</p>
                     </div>
 
                     {(!hasLoadedInstruments || !hasLoadedNotes) && Array.from({ length: 3 }, (_, index) => (
-                      <div key={`note-skeleton-${index}`} className="ds-card p-4 rounded-2xl animate-pulse">
+                      <div key={`note-skeleton-${index}`} className="ds-card p-4 animate-pulse">
                         <div className="flex items-center justify-between">
-                          <div className="flex items-center gap-3">
-                            <div className="w-8 h-8 rounded-lg bg-slate-200" />
-                            <div>
-                              <div className="h-4 w-44 bg-slate-200 rounded mb-2" />
-                              <div className="h-3 w-20 bg-slate-100 rounded" />
-                            </div>
+                          <div>
+                            <div className="h-3.5 w-44 bg-[var(--ds-surface-muted)] rounded-sm mb-2" />
+                            <div className="h-3 w-20 bg-[var(--ds-surface-muted)] rounded-sm" />
                           </div>
-                          <div className="h-3 w-10 bg-slate-100 rounded" />
+                          <div className="h-3 w-10 bg-[var(--ds-surface-muted)] rounded-sm" />
                         </div>
-                        <div className="mt-4 h-14 bg-slate-50 rounded-xl border border-slate-100" />
+                        <div className="mt-4 h-14 bg-[var(--ds-surface-muted)] rounded-sm" />
                       </div>
                     ))}
                     {(!hasLoadedInstruments || !hasLoadedNotes) && <div className="sr-only" role="status" aria-live="polite">Loading reports</div>}
@@ -433,33 +435,30 @@ const AdminDashboard = ({ labName, onLogout }) => {
 
                         const styles = getColorStyle(inst.color);
                         return (
-                            <div key={inst.id} className="ds-card p-4 border-l-4 rounded-2xl" style={{ borderLeftColor: styles.accent || '#3b82f6' }}>
+                            <div key={inst.id} className="ds-card p-4 border-l-2" style={{ borderLeftColor: styles.accent || 'var(--ds-brand-500)' }}>
                                 <button type="button" aria-expanded={isOpen} aria-label={`${isOpen ? 'Collapse' : 'Expand'} reports for ${inst.name}`} onClick={() => toggleInstrumentPanel(inst.id)} className="w-full flex items-center justify-between gap-3 text-left">
-                                  <div className="flex items-center gap-3">
-                                    <div className={`p-1.5 rounded-lg ${styles.bg} ${styles.text}`}><MessageSquare className="w-4 h-4"/></div>
-                                    <div>
-                                        <h3 className="font-bold text-slate-800">{inst.name}</h3>
-                                        <p className="text-[10px] text-slate-400 uppercase tracking-widest">{instrumentNotes.length} Reports</p>
-                                    </div>
+                                  <div>
+                                      <h3 className="text-[13px] font-semibold text-[color:var(--ds-text-strong)]">{inst.name}</h3>
+                                      <p className="ds-microcaps text-[color:var(--ds-text-muted)] mt-0.5">{instrumentNotes.length} Reports</p>
                                   </div>
-                                  <span className="text-xs font-bold text-slate-500">{isOpen ? 'Hide' : 'Open'}</span>
+                                  <span className="text-[11px] font-semibold text-[color:var(--ds-text-muted)]">{isOpen ? 'Hide' : 'Open'}</span>
                                 </button>
                                 {isOpen && (
-                                <div className="space-y-2 mt-3">
+                                <div className="mt-3 border-t border-[var(--ds-rule)]">
                                     {visibleNotes.map(note => (
-                                        <div key={note.id} className="bg-slate-50 p-2.5 rounded-xl border border-slate-100 relative group transition-all hover:bg-white">
-                                            <div className="flex justify-between items-start mb-1.5">
-                                                <div className="flex items-center gap-2">
-                                                    <span className="font-bold text-xs text-slate-700">{note.userName}</span>
-                                                    <span className="text-[10px] bg-white px-2 py-0.5 rounded-full border border-slate-200 text-slate-400 font-data tabular-nums">{formatTime(note.timestamp)}</span>
+                                        <div key={note.id} className="py-2.5 border-b border-[var(--ds-rule)] last:border-b-0 group">
+                                            <div className="flex justify-between items-start mb-1">
+                                                <div className="flex items-baseline gap-2">
+                                                    <span className="text-xs font-semibold text-[color:var(--ds-text-strong)]">{note.userName}</span>
+                                                    <span className="text-[11px] font-data-mono text-[color:var(--ds-text-soft)]">{formatTime(note.timestamp)}</span>
                                                 </div>
-                                                <button type="button" aria-label={`Delete note by ${note.userName}`} onClick={() => handleDeleteNote(note)} className="text-slate-300 hover:text-red-500 transition opacity-0 group-hover:opacity-100"><Trash2 className="w-4 h-4"/></button>
+                                                <button type="button" aria-label={`Delete note by ${note.userName}`} onClick={() => handleDeleteNote(note)} className="p-1 text-[color:var(--ds-text-soft)] hover:text-[color:var(--ds-danger-text)] ds-transition opacity-0 group-hover:opacity-100 focus-visible:opacity-100 [@media(hover:none)]:opacity-100"><Trash2 className="w-4 h-4"/></button>
                                             </div>
-                                            <p className="text-slate-600 text-xs leading-relaxed whitespace-pre-wrap">{note.message}</p>
+                                            <p className="text-xs text-[color:var(--ds-text)] leading-relaxed whitespace-pre-wrap">{note.message}</p>
                                         </div>
                                     ))}
                                     {instrumentNotes.length > 1 && (
-                                      <button type="button" aria-expanded={isExpanded} onClick={() => toggleInstrumentNotes(inst.id)} className="text-xs font-bold text-blue-600 hover:text-blue-700">
+                                      <button type="button" aria-expanded={isExpanded} onClick={() => toggleInstrumentNotes(inst.id)} className="mt-2 text-[11px] font-semibold text-[color:var(--ds-brand-700)] hover:underline">
                                         {isExpanded ? 'Show less' : `See ${hiddenCount} more`}
                                       </button>
                                     )}
@@ -475,33 +474,30 @@ const AdminDashboard = ({ labName, onLogout }) => {
                         const visibleNotes = isExpanded ? group.notes : [group.notes[0]];
                         const hiddenCount = group.notes.length - 1;
                         return (
-                            <div key={group.instrumentId} className="ds-card p-4 border-l-4 rounded-2xl" style={{ borderLeftColor: '#94a3b8' }}>
+                            <div key={group.instrumentId} className="ds-card p-4 border-l-2" style={{ borderLeftColor: 'var(--ds-rule-strong)' }}>
                                 <button type="button" aria-expanded={isOpen} aria-label={`${isOpen ? 'Collapse' : 'Expand'} reports for ${group.instrumentName}`} onClick={() => toggleInstrumentPanel(group.instrumentId)} className="w-full flex items-center justify-between gap-3 text-left">
-                                  <div className="flex items-center gap-3">
-                                    <div className="p-1.5 rounded-lg bg-slate-100 text-slate-500"><MessageSquare className="w-4 h-4"/></div>
-                                    <div>
-                                        <h3 className="font-bold text-slate-500 flex items-center gap-2">{group.instrumentName} <span className="text-[9px] bg-slate-100 text-slate-500 px-1.5 py-0.5 rounded font-black uppercase">Removed</span></h3>
-                                        <p className="text-[10px] text-slate-400 uppercase tracking-widest">{group.notes.length} Reports</p>
-                                    </div>
+                                  <div>
+                                      <h3 className="text-[13px] font-semibold text-[color:var(--ds-text-muted)] flex items-center gap-2">{group.instrumentName} <span className="ds-stamp ds-stamp-full">Removed</span></h3>
+                                      <p className="ds-microcaps text-[color:var(--ds-text-muted)] mt-0.5">{group.notes.length} Reports</p>
                                   </div>
-                                  <span className="text-xs font-bold text-slate-500">{isOpen ? 'Hide' : 'Open'}</span>
+                                  <span className="text-[11px] font-semibold text-[color:var(--ds-text-muted)]">{isOpen ? 'Hide' : 'Open'}</span>
                                 </button>
                                 {isOpen && (
-                                <div className="space-y-2 mt-3">
+                                <div className="mt-3 border-t border-[var(--ds-rule)]">
                                     {visibleNotes.map(note => (
-                                        <div key={note.id} className="bg-slate-50 p-2.5 rounded-xl border border-slate-100 relative group transition-all hover:bg-white">
-                                            <div className="flex justify-between items-start mb-1.5">
-                                                <div className="flex items-center gap-2">
-                                                    <span className="font-bold text-xs text-slate-700">{note.userName}</span>
-                                                    <span className="text-[10px] bg-white px-2 py-0.5 rounded-full border border-slate-200 text-slate-400 font-data tabular-nums">{formatTime(note.timestamp)}</span>
+                                        <div key={note.id} className="py-2.5 border-b border-[var(--ds-rule)] last:border-b-0 group">
+                                            <div className="flex justify-between items-start mb-1">
+                                                <div className="flex items-baseline gap-2">
+                                                    <span className="text-xs font-semibold text-[color:var(--ds-text-strong)]">{note.userName}</span>
+                                                    <span className="text-[11px] font-data-mono text-[color:var(--ds-text-soft)]">{formatTime(note.timestamp)}</span>
                                                 </div>
-                                                <button type="button" aria-label={`Delete note by ${note.userName}`} onClick={() => handleDeleteNote(note)} className="text-slate-300 hover:text-red-500 transition opacity-0 group-hover:opacity-100"><Trash2 className="w-4 h-4"/></button>
+                                                <button type="button" aria-label={`Delete note by ${note.userName}`} onClick={() => handleDeleteNote(note)} className="p-1 text-[color:var(--ds-text-soft)] hover:text-[color:var(--ds-danger-text)] ds-transition opacity-0 group-hover:opacity-100 focus-visible:opacity-100 [@media(hover:none)]:opacity-100"><Trash2 className="w-4 h-4"/></button>
                                             </div>
-                                            <p className="text-slate-600 text-xs leading-relaxed whitespace-pre-wrap">{note.message}</p>
+                                            <p className="text-xs text-[color:var(--ds-text)] leading-relaxed whitespace-pre-wrap">{note.message}</p>
                                         </div>
                                     ))}
                                     {group.notes.length > 1 && (
-                                      <button type="button" aria-expanded={isExpanded} onClick={() => toggleInstrumentNotes(group.instrumentId)} className="text-xs font-bold text-blue-600 hover:text-blue-700">
+                                      <button type="button" aria-expanded={isExpanded} onClick={() => toggleInstrumentNotes(group.instrumentId)} className="mt-2 text-[11px] font-semibold text-[color:var(--ds-brand-700)] hover:underline">
                                         {isExpanded ? 'Show less' : `See ${hiddenCount} more`}
                                       </button>
                                     )}
@@ -513,9 +509,9 @@ const AdminDashboard = ({ labName, onLogout }) => {
 
                     {hasLoadedInstruments && hasLoadedNotes && notes.length === 0 && (
                         <div className="ds-card p-6 text-center">
-                            <div className="bg-slate-100 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4"><Book className="w-8 h-8 text-slate-300"/></div>
-                            <h3 className="text-slate-500 font-bold">No reports yet</h3>
-                            <p className="text-slate-400 text-xs mt-1">All instruments are running smoothly.</p>
+                            <Book className="w-8 h-8 text-[color:var(--ds-text-soft)] mx-auto mb-3"/>
+                            <h3 className="text-[13px] font-semibold text-[color:var(--ds-text-muted)]">No reports yet</h3>
+                            <p className="text-[11px] text-[color:var(--ds-text-soft)] mt-1">All instruments are running smoothly.</p>
                         </div>
                     )}
                 </div>
@@ -523,20 +519,22 @@ const AdminDashboard = ({ labName, onLogout }) => {
 
             {/* 3) Logs tab */}
             {activeTab === 'LOGS' && (
-                <div className="ds-card p-6">
-                  <h2 className="text-xl font-bold text-slate-800 mb-2">System logs</h2>
-                  <p className="text-xs text-slate-400 mb-5">Only the most recent 2 months are kept.</p>
+                <div>
+                  <div className="ds-card p-4 mb-4">
+                    <h2 className="text-[13px] font-semibold text-[color:var(--ds-text-strong)] flex items-center gap-2"><History className="w-4 h-4 text-[color:var(--ds-brand-700)]"/> System logs</h2>
+                    <p className="text-[11px] text-[color:var(--ds-text-muted)] mt-1">Showing the last 2 months of activity.</p>
+                  </div>
                   <div className="space-y-3">
                     {!hasLoadedLogs && <div className="sr-only" role="status" aria-live="polite">Loading logs</div>}
                     {!hasLoadedLogs && Array.from({ length: 2 }, (_, index) => (
-                      <div key={`log-skeleton-${index}`} className="border border-slate-100 rounded-xl overflow-hidden animate-pulse">
-                        <div className="w-full flex items-center justify-between px-4 py-3 bg-slate-50">
-                          <div className="h-4 w-24 bg-slate-200 rounded" />
-                          <div className="h-3 w-16 bg-slate-100 rounded" />
+                      <div key={`log-skeleton-${index}`} className="ds-card overflow-hidden animate-pulse">
+                        <div className="w-full flex items-center justify-between px-4 py-3 bg-[var(--ds-surface-muted)]">
+                          <div className="h-3.5 w-24 bg-[var(--ds-rule)] rounded-sm" />
+                          <div className="h-3 w-16 bg-[var(--ds-rule)] rounded-sm" />
                         </div>
-                        <div className="p-3 space-y-2 bg-white">
-                          <div className="h-10 rounded-lg bg-slate-50 border border-slate-100" />
-                          <div className="h-10 rounded-lg bg-slate-50 border border-slate-100" />
+                        <div className="p-3 space-y-2 border-t border-[var(--ds-rule)]">
+                          <div className="h-10 rounded bg-[var(--ds-surface-muted)]" />
+                          <div className="h-10 rounded bg-[var(--ds-surface-muted)]" />
                         </div>
                       </div>
                     ))}
@@ -544,51 +542,51 @@ const AdminDashboard = ({ labName, onLogout }) => {
                       const isOpen = Boolean(openedLogMonths[group.key]);
                       const users = bookingUsersByMonth[group.key] || [];
                       return (
-                        <div key={group.key} className="border border-slate-100 rounded-xl overflow-hidden">
+                        <div key={group.key} className="ds-card overflow-hidden">
                           <button
                             type="button"
                             aria-expanded={isOpen}
                             onClick={() => toggleLogMonth(group.key)}
-                            className="w-full flex items-center justify-between px-4 py-3 bg-slate-50 hover:bg-slate-100 transition"
+                            className="w-full flex items-center justify-between px-4 py-3 bg-[var(--ds-surface-muted)] hover:bg-[var(--ds-full-bg)] ds-transition"
                           >
                             <div className="flex items-center gap-2">
-                              {isOpen ? <ChevronDown className="w-4 h-4 text-slate-500"/> : <ChevronRight className="w-4 h-4 text-slate-500"/>}
-                              <span className="font-bold text-slate-700 font-data tabular-nums">{group.label}</span>
+                              {isOpen ? <ChevronDown className="w-4 h-4 text-[color:var(--ds-text-soft)]"/> : <ChevronRight className="w-4 h-4 text-[color:var(--ds-text-soft)]"/>}
+                              <span className="text-xs font-semibold font-data-mono text-[color:var(--ds-text-strong)]">{group.label}</span>
                             </div>
-                            <span className="text-xs text-slate-400 font-data tabular-nums">{users.length} people</span>
+                            <span className="text-[11px] text-[color:var(--ds-text-soft)] font-data tabular-nums">{users.length} people</span>
                           </button>
                           {isOpen && (
-                            <div className="p-3 space-y-2 bg-white">
+                            <div className="p-3 space-y-2 border-t border-[var(--ds-rule)]">
                               {users.map(([userName, userLogs]) => {
                                 const openKey = `${group.key}::${userName}`;
                                 const isUserOpen = Boolean(openedLogUsers[openKey]);
                                 const isShowAll = Boolean(showAllUserLogs[openKey]);
                                 const visibleLogs = isShowAll ? userLogs : userLogs.slice(0, 10);
                                 return (
-                                  <div key={openKey} className="border border-slate-100 rounded-lg overflow-hidden">
+                                  <div key={openKey} className="border border-[var(--ds-rule)] rounded overflow-hidden">
                                     <button
                                       type="button"
                                       aria-expanded={isUserOpen}
                                       onClick={() => toggleLogUser(group.key, userName)}
-                                      className="w-full px-3 py-2 bg-slate-50 hover:bg-slate-100 transition flex items-center justify-between"
+                                      className="w-full px-3 py-2 bg-[var(--ds-surface-muted)] hover:bg-[var(--ds-full-bg)] ds-transition flex items-center justify-between"
                                     >
                                       <div className="flex items-center gap-2">
-                                        {isUserOpen ? <ChevronDown className="w-4 h-4 text-slate-500"/> : <ChevronRight className="w-4 h-4 text-slate-500"/>}
-                                        <span className="font-bold text-slate-700">{userName}</span>
+                                        {isUserOpen ? <ChevronDown className="w-4 h-4 text-[color:var(--ds-text-soft)]"/> : <ChevronRight className="w-4 h-4 text-[color:var(--ds-text-soft)]"/>}
+                                        <span className="text-xs font-semibold text-[color:var(--ds-text-strong)]">{userName}</span>
                                       </div>
-                                      <span className="text-[11px] text-slate-400 font-data tabular-nums">{userLogs.length} booking logs</span>
+                                      <span className="text-[11px] text-[color:var(--ds-text-soft)] font-data tabular-nums">{userLogs.length} booking logs</span>
                                     </button>
                                     {isUserOpen && (
-                                      <div className="divide-y divide-slate-100">
+                                      <div className="divide-y divide-[var(--ds-rule)] border-t border-[var(--ds-rule)]">
                                         {visibleLogs.map((log) => (
-                                          <div key={log.id} className="px-3 py-2 grid grid-cols-[100px_110px_1fr] gap-2 items-start text-xs hover:bg-slate-50">
-                                            <div className="text-slate-400 font-data tabular-nums">{formatTime(log.timestamp)}</div>
+                                          <div key={log.id} className="px-3 py-2 grid grid-cols-[88px_auto_1fr] gap-2 items-start hover:bg-[var(--ds-surface-muted)]">
+                                            <div className="text-[11px] font-data-mono text-[color:var(--ds-text-soft)]">{formatTime(log.timestamp)}</div>
                                             <div>
-                                              <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${(log.action || '').includes('CANCEL') ? 'bg-red-100 text-red-600' : 'bg-blue-100 text-blue-600'}`}>
+                                              <span className={`ds-stamp ${(log.action || '').includes('CANCEL') ? 'bg-[var(--ds-danger-bg)] text-[color:var(--ds-danger-text)]' : 'ds-stamp-full'}`}>
                                                 {log.action || 'LOG'}
                                               </span>
                                             </div>
-                                            <div className="text-slate-600">{log.message}</div>
+                                            <div className="text-xs text-[color:var(--ds-text)]">{log.message}</div>
                                           </div>
                                         ))}
                                         {userLogs.length > 10 && (
@@ -596,7 +594,7 @@ const AdminDashboard = ({ labName, onLogout }) => {
                                             type="button"
                                             aria-expanded={isShowAll}
                                             onClick={() => toggleShowAllLogsForUser(group.key, userName)}
-                                            className="w-full text-left px-3 py-2 text-xs font-bold text-blue-600 hover:bg-blue-50 transition"
+                                            className="w-full text-left px-3 py-2 text-[11px] font-semibold text-[color:var(--ds-brand-700)] hover:bg-[var(--ds-brand-100)] ds-transition"
                                           >
                                             {isShowAll ? 'Show recent 10' : 'See all booking activity'}
                                           </button>
@@ -607,7 +605,7 @@ const AdminDashboard = ({ labName, onLogout }) => {
                                 );
                               })}
                               {users.length === 0 && (
-                                <div className="text-xs text-slate-400 bg-slate-50 border border-slate-100 rounded-lg p-4 text-center">
+                                <div className="text-[11px] text-[color:var(--ds-text-soft)] bg-[var(--ds-surface-muted)] border border-[var(--ds-rule)] rounded p-4 text-center">
                                   No booking activity this month.
                                 </div>
                               )}
@@ -617,20 +615,20 @@ const AdminDashboard = ({ labName, onLogout }) => {
                       );
                     })}
                     {hasLoadedLogs && logsByMonth.length === 0 && (
-                      <div className="text-sm text-slate-400 bg-slate-50 border border-slate-100 rounded-xl p-6 text-center">No recent logs.</div>
+                      <div className="ds-card p-6 text-center text-xs text-[color:var(--ds-text-muted)]">No recent logs.</div>
                     )}
                   </div>
                 </div>
             )}
         </div>
-        
+
         {/* Dialog: keep props explicit for edit/create flows */}
-        <InstrumentModal 
-          isOpen={showInstrumentModal} 
-          onClose={()=>setShowInstrumentModal(false)} 
-          onSave={handleSaveInstrument} 
-          initialData={editingInstrument} 
-          existingInstruments={instruments} 
+        <InstrumentModal
+          isOpen={showInstrumentModal}
+          onClose={()=>setShowInstrumentModal(false)}
+          onSave={handleSaveInstrument}
+          initialData={editingInstrument}
+          existingInstruments={instruments}
         />
         <ConfirmDialog
           isOpen={Boolean(instrumentToDelete)}

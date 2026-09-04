@@ -4,19 +4,23 @@ import { CheckCircle2, AlertTriangle, Info, XCircle, X } from 'lucide-react';
 const TONE_MAP = {
   success: {
     icon: CheckCircle2,
-    className: 'bg-emerald-50 border-emerald-200 text-emerald-700'
+    edgeClass: 'border-l-[var(--ds-success-text)]',
+    iconClass: 'text-[color:var(--ds-success-text)]'
   },
   warning: {
     icon: AlertTriangle,
-    className: 'bg-amber-50 border-amber-200 text-amber-700'
+    edgeClass: 'border-l-[var(--ds-warning-text)]',
+    iconClass: 'text-[color:var(--ds-warning-text)]'
   },
   error: {
     icon: XCircle,
-    className: 'bg-red-50 border-red-200 text-red-700'
+    edgeClass: 'border-l-[var(--ds-danger-text)]',
+    iconClass: 'text-[color:var(--ds-danger-text)]'
   },
   info: {
     icon: Info,
-    className: 'bg-slate-50 border-slate-200 text-slate-700'
+    edgeClass: 'border-l-[var(--ds-brand-700)]',
+    iconClass: 'text-[color:var(--ds-brand-700)]'
   }
 };
 
@@ -33,14 +37,14 @@ const ToastStack = ({ toasts, onDismiss }) => {
             key={toast.id}
             role="status"
             aria-live="polite"
-            className={`pointer-events-auto rounded-xl border px-3 py-2 shadow-sm flex items-start gap-2 ${tone.className}`}
+            className={`pointer-events-auto rounded-[2px] bg-[var(--ds-surface)] border border-[var(--ds-rule-strong)] border-l-2 ${tone.edgeClass} px-3 py-2 shadow-[shadow:var(--ds-shadow-md)] flex items-start gap-2`}
           >
-            <Icon className="w-4 h-4 mt-0.5 shrink-0" />
-            <div className="text-xs font-medium flex-1">{toast.message}</div>
+            <Icon className={`w-4 h-4 mt-0.5 shrink-0 ${tone.iconClass}`} />
+            <div className="text-[12px] font-medium text-[color:var(--ds-text)] flex-1">{toast.message}</div>
             <button
               type="button"
               onClick={() => onDismiss(toast.id)}
-              className="rounded p-0.5 hover:bg-black/5"
+              className="rounded-[2px] p-0.5 text-[color:var(--ds-text-soft)] hover:bg-[var(--ds-surface-muted)]"
               aria-label="Dismiss message"
             >
               <X className="w-3.5 h-3.5" />

@@ -3,7 +3,7 @@ import { X, Sun, Moon, Clock3, Repeat, Loader2, Beaker } from 'lucide-react';
 import { getColorStyle } from '../../utils/helpers';
 
 const BookingModal = ({ isOpen, onClose, initialHour, instrument, onConfirm, isBooking, getConflictPreview, getQuantityLimit }) => {
-  const [repeatOption, setRepeatOption] = useState(0); 
+  const [repeatOption, setRepeatOption] = useState(0);
   const [bookingMode, setBookingMode] = useState('hourly');
   const [quantity, setQuantity] = useState('1');
   const [selectedUnit, setSelectedUnit] = useState('');
@@ -16,7 +16,9 @@ const BookingModal = ({ isOpen, onClose, initialHour, instrument, onConfirm, isB
   const isFullDay = bookingMode === 'full_day';
   const isOvernight = bookingMode === 'overnight';
   const isWorkingHours = bookingMode === 'working_hours';
-  const displayHour = String(Number.isFinite(Number(initialHour)) ? Number(initialHour) : 0).padStart(2, '0');
+  const hourNum = Number.isFinite(Number(initialHour)) ? Number(initialHour) : 0;
+  const displayHour = String(hourNum).padStart(2, '0');
+  const hourlyRange = `${displayHour}:00–${String(hourNum + 1).padStart(2, '0')}:00`;
   const unitOptions = useMemo(() => (
     Array.from(
       new Set((Array.isArray(instrument?.subOptions) ? instrument.subOptions : []).map((item) => String(item || '').trim()).filter(Boolean))
@@ -24,10 +26,10 @@ const BookingModal = ({ isOpen, onClose, initialHour, instrument, onConfirm, isB
   ), [instrument?.subOptions]);
   const requiresUnitSelection = unitOptions.length > 0;
   const bookingModeOptions = [
-    { id: 'hourly', label: 'Hourly', detail: `Present hour ${displayHour}:00`, icon: Clock3 },
-    { id: 'working_hours', label: 'Working Hours', detail: '09:00-17:00', icon: Clock3 },
-    { id: 'full_day', label: 'Full Day', detail: '00:00-24:00', icon: Sun },
-    { id: 'overnight', label: 'Overnight', detail: '17:00-09:00', icon: Moon }
+    { id: 'hourly', label: 'Hourly', detail: hourlyRange, icon: Clock3 },
+    { id: 'working_hours', label: 'Working Hours', detail: '09:00–17:00', icon: Clock3 },
+    { id: 'full_day', label: 'Full Day', detail: '00:00–24:00', icon: Sun },
+    { id: 'overnight', label: 'Overnight', detail: '17:00–09:00', icon: Moon }
   ];
   const dynamicUpperBound = Math.max(
     0,
@@ -50,6 +52,8 @@ const BookingModal = ({ isOpen, onClose, initialHour, instrument, onConfirm, isB
   const isQuantityValid = !isQuantityRequired || (!isQuantityMissing && !isQuantityDepleted && !isQuantityOutOfRange);
   const resolvedQuantity = normalizeQuantity(quantity);
   const effectiveQuantity = isQuantityRequired ? resolvedQuantity : 1;
+  const selectedModeOption = bookingModeOptions.find((mode) => mode.id === bookingMode) || bookingModeOptions[0];
+  const recordSummary = `${String(instrument?.name || '').toUpperCase()} · ${selectedModeOption.detail} · ${effectiveQuantity} ${effectiveQuantity === 1 ? 'UNIT' : 'UNITS'}`;
   const handleQuantityChange = (event) => {
     const rawValue = event.target.value;
     if (!/^\d*$/.test(rawValue)) return;
@@ -72,7 +76,7 @@ const BookingModal = ({ isOpen, onClose, initialHour, instrument, onConfirm, isB
     setQuantity(String(resolvedQuantity));
   };
 
-  useEffect(() => { 
+  useEffect(() => {
     if (isOpen) {
       setQuantity(isQuantityRequired ? '' : '1');
       setRepeatOption(0);
@@ -128,33 +132,39 @@ const BookingModal = ({ isOpen, onClose, initialHour, instrument, onConfirm, isB
   if (!isOpen) return null;
 
   return (
-    <div className="ds-overlay" role="presentation">
+    <div className="ds-overlay ds-overlay-sheet" role="presentation">
       <div
-        className="ds-modal ds-modal-sm ds-modal-liquid ds-section ds-animate-modal overflow-y-auto max-h-[90vh]"
+        className="ds-modal ds-modal-md ds-sheet overflow-y-auto sm:max-h-[90vh]"
+        style={{ borderTop: `2px solid ${styles.accent}` }}
         role="dialog"
         aria-modal="true"
         aria-labelledby="booking-modal-title"
       >
-        <div className="flex justify-between items-center mb-4">
-          <h3 id="booking-modal-title" className="text-xl font-bold text-slate-800">Booking details</h3>
-          <button type="button" onClick={onClose} aria-label="Close booking details" className="ds-icon-btn-glass text-slate-500 hover:text-slate-700"><X className="w-6 h-6"/></button>
-        </div>
-        
-        <div className="space-y-4">
-          <div className="ds-instrument-glass-card ds-instrument-glass-card-clean p-4 rounded-xl" style={{ '--ds-inst-accent': styles.accent }}>
-            <div className={`text-lg font-bold ${styles.text}`}>{instrument?.name}</div>
-          </div>
+        <div className="ds-sheet-grab" />
 
+        <div className="flex items-start justify-between gap-3 px-4 pt-3 pb-3 border-b border-[var(--ds-rule)]">
+          <div className="min-w-0">
+            <h3 id="booking-modal-title" className="text-[15px] font-bold text-[color:var(--ds-text-strong)] truncate">
+              {instrument?.name}
+            </h3>
+            <div className="mt-0.5 text-[12px] font-data-mono text-[color:var(--ds-text-muted)]">
+              {displayHour}:00
+            </div>
+          </div>
+          <button type="button" onClick={onClose} aria-label="Close booking details" className="ds-icon-btn-glass shrink-0"><X className="w-5 h-5"/></button>
+        </div>
+
+        <div className="px-4 py-4 space-y-4">
           {requiresUnitSelection && (
-            <div className="ds-glass-panel p-4 rounded-xl">
-              <label htmlFor="booking-unit" className="text-[11px] font-bold text-slate-600 uppercase mb-2 tracking-wide block">
+            <div>
+              <label htmlFor="booking-unit" className="ds-field-label block mb-1">
                 Unit
               </label>
               <select
                 id="booking-unit"
                 value={selectedUnit}
                 onChange={(event) => setSelectedUnit(event.target.value)}
-                className="ds-input p-3 text-base font-medium text-slate-700"
+                className="ds-input p-3 text-base"
               >
                 <option value="">Select unit</option>
                 {unitOptions.map((unit) => (
@@ -165,45 +175,50 @@ const BookingModal = ({ isOpen, onClose, initialHour, instrument, onConfirm, isB
           )}
 
           {maxCap > 1 && (
-            <div className="ds-glass-panel p-4 rounded-xl">
-              <label htmlFor="booking-quantity" className="text-xs font-bold text-indigo-600 uppercase flex items-center gap-1 mb-2">
-                <Beaker className="w-3 h-3"/> Quantity (max {maxCap})
+            <div>
+              <label htmlFor="booking-quantity" className="ds-field-label flex items-center gap-1 mb-1">
+                <Beaker className="w-3 h-3"/> Quantity
               </label>
               {/* Keep 16px input text to prevent iOS auto-zoom on focus. */}
-              <input 
-                id="booking-quantity"
-                type="text"
-                inputMode="numeric"
-                pattern="[0-9]*"
-                min="1" 
-                max={Math.max(1, dynamicUpperBound)} 
-                value={quantity} 
-                aria-describedby="booking-quantity-help"
-                onChange={handleQuantityChange}
-                onBlur={handleQuantityBlur}
-                disabled={isQuantityDepleted}
-                className="w-full p-3 rounded-lg border border-indigo-200/70 outline-none font-medium text-base text-indigo-700 font-data tabular-nums bg-white/50"
-              />
-              <div id="booking-quantity-help" className="mt-1 text-[11px] text-indigo-600">
-                {isQuantityDepleted
-                  ? 'No quantity available for the selected slot.'
-                  : `Enter quantity between 1 and ${dynamicUpperBound}.`}
+              <div className="flex items-baseline gap-2">
+                <input
+                  id="booking-quantity"
+                  type="text"
+                  inputMode="numeric"
+                  pattern="[0-9]*"
+                  min="1"
+                  max={Math.max(1, dynamicUpperBound)}
+                  value={quantity}
+                  aria-describedby="booking-quantity-help"
+                  onChange={handleQuantityChange}
+                  onBlur={handleQuantityBlur}
+                  disabled={isQuantityDepleted}
+                  className="ds-input w-24 p-3 text-base font-data-mono tabular-nums"
+                />
+                <div
+                  id="booking-quantity-help"
+                  className={`text-[11px] ${isQuantityDepleted ? 'font-semibold text-[color:var(--ds-warning-text)]' : 'text-[color:var(--ds-text-soft)]'}`}
+                >
+                  {isQuantityDepleted
+                    ? `0 of ${maxCap} free for this slot`
+                    : `of ${dynamicUpperBound} free`}
+                </div>
               </div>
               {isQuantityMissing && !isQuantityDepleted && (
-                <div className="mt-1 text-[11px] text-red-600" role="alert">
+                <div className="mt-1 text-[11px] text-[color:var(--ds-danger-text)]" role="alert">
                   Quantity is required.
                 </div>
               )}
               {isQuantityOutOfRange && !isQuantityDepleted && (
-                <div className="mt-1 text-[11px] text-red-600" role="alert">
+                <div className="mt-1 text-[11px] text-[color:var(--ds-danger-text)]" role="alert">
                   Enter quantity between 1 and {dynamicUpperBound}.
                 </div>
               )}
             </div>
           )}
 
-          <div className="ds-glass-panel p-4 rounded-xl">
-            <label htmlFor="booking-comment" className="text-[11px] font-bold text-slate-600 uppercase mb-2 tracking-wide block">
+          <div>
+            <label htmlFor="booking-comment" className="ds-field-label block mb-1">
               Comment (optional)
             </label>
             <textarea
@@ -215,14 +230,18 @@ const BookingModal = ({ isOpen, onClose, initialHour, instrument, onConfirm, isB
               placeholder="Add any special note for others..."
               className="ds-input p-3 text-sm resize-none"
             />
-            <div className="mt-1 text-[11px] text-slate-500 text-right font-data tabular-nums">
+            <div className="mt-1 text-[11px] text-[color:var(--ds-text-soft)] text-right font-data tabular-nums">
               {bookingComment.length}/500
             </div>
           </div>
 
-          <div className="ds-glass-panel p-4 rounded-xl">
-            <div className="text-[11px] font-bold text-slate-600 uppercase mb-2 tracking-wide">Booking mode</div>
-            <div className="grid grid-cols-2 gap-2" role="radiogroup" aria-label="Booking mode">
+          <div>
+            <div className="ds-field-label mb-1">Booking mode</div>
+            <div
+              className="border border-[var(--ds-rule)] rounded-[4px] overflow-hidden divide-y divide-[var(--ds-rule)]"
+              role="radiogroup"
+              aria-label="Booking mode"
+            >
               {bookingModeOptions.map((mode) => {
                 const Icon = mode.icon;
                 const isActive = bookingMode === mode.id;
@@ -233,28 +252,26 @@ const BookingModal = ({ isOpen, onClose, initialHour, instrument, onConfirm, isB
                     role="radio"
                     aria-checked={isActive}
                     onClick={() => setBookingMode(mode.id)}
-                    className={`p-3 rounded-xl border text-left ds-transition ${
-                      isActive
-                        ? 'ds-glass-choice-active text-[var(--ds-brand-700)]'
-                        : 'ds-glass-choice text-slate-600'
+                    className={`w-full flex items-center justify-between gap-3 px-3 py-2.5 text-left ds-transition ${
+                      isActive ? 'ds-glass-choice-active' : 'ds-glass-choice'
                     }`}
                   >
-                    <div className="flex items-center gap-2">
-                      <Icon className="w-4 h-4 shrink-0" />
-                      <span className="text-xs font-bold">{mode.label}</span>
-                    </div>
-                    <div className="mt-1 text-[11px] font-data tabular-nums text-slate-500">{mode.detail}</div>
+                    <span className="flex items-center gap-2 min-w-0">
+                      <Icon className={`w-4 h-4 shrink-0 ${isActive ? 'text-[color:var(--ds-brand-700)]' : 'text-[color:var(--ds-text-soft)]'}`} />
+                      <span className={`text-[13px] font-medium ${isActive ? 'text-[color:var(--ds-brand-700)]' : 'text-[color:var(--ds-text)]'}`}>{mode.label}</span>
+                    </span>
+                    <span className="text-[11px] font-data-mono text-[color:var(--ds-text-soft)] shrink-0">{mode.detail}</span>
                   </button>
                 );
               })}
             </div>
           </div>
 
-          <div className="ds-glass-panel p-4 rounded-xl">
-            <div className="flex items-center gap-2 text-slate-600 mb-3"><Repeat className="w-4 h-4"/><span className="font-bold text-xs uppercase">Repeat booking</span></div>
+          <div>
+            <div className="ds-field-label flex items-center gap-1 mb-1"><Repeat className="w-3 h-3"/> Repeat booking</div>
             <div className="grid grid-cols-4 gap-2">
               {[0, 1, 2, 3].map(opt => (
-                <button key={opt} type="button" onClick={() => setRepeatOption(opt)} className={`py-2 rounded-lg text-[10px] font-bold font-data tabular-nums ds-transition ${repeatOption === opt ? styles.darkBg + ' text-white' : 'ds-glass-choice text-slate-500'}`}>
+                <button key={opt} type="button" onClick={() => setRepeatOption(opt)} className={`py-2 border rounded-[4px] text-[11px] font-semibold font-data tabular-nums ds-transition ${repeatOption === opt ? 'ds-glass-choice-active text-[color:var(--ds-brand-700)]' : 'ds-glass-choice text-[color:var(--ds-text-muted)]'}`}>
                   {opt === 0 ? 'Once' : `${opt + 1} Wks`}
                 </button>
               ))}
@@ -262,14 +279,25 @@ const BookingModal = ({ isOpen, onClose, initialHour, instrument, onConfirm, isB
           </div>
 
           {conflictPreview.count > 0 && (
-            <div className="bg-amber-50 border border-amber-200 rounded-xl p-3" role="status" aria-live="polite">
-              <div className="text-[11px] font-bold text-amber-700 uppercase">Conflicts found ({conflictPreview.count})</div>
-              <div className="text-[11px] text-amber-700 mt-1">{conflictPreview.first}</div>
+            <div className="border-l-2 border-l-[var(--ds-warning-text)] pl-3 py-0.5" role="status" aria-live="polite">
+              <div className="ds-microcaps text-[color:var(--ds-warning-text)]">Conflicts found ({conflictPreview.count})</div>
+              <div className="mt-1 text-[12px] text-[color:var(--ds-warning-text)]">{conflictPreview.first}</div>
             </div>
           )}
+        </div>
 
-          <button type="button" onClick={() => onConfirm(repeatOption, isFullDay, selectedUnit, isOvernight, isWorkingHours, effectiveQuantity, bookingComment)} disabled={isBooking || conflictPreview.count > 0 || !isQuantityValid || (requiresUnitSelection && !selectedUnit)} className={`w-full py-4 ds-btn text-white transition-all ${styles.darkBg} disabled:opacity-50`} aria-busy={isBooking}>
-            {isBooking ? <Loader2 className="animate-spin w-5 h-5 mx-auto"/> : conflictPreview.count > 0 ? "Resolve conflicts" : "Confirm booking"}
+        <div className="sticky bottom-0 bg-[var(--ds-surface)] border-t border-[var(--ds-rule)] px-4 py-3 flex items-center justify-between gap-3">
+          <div className="min-w-0 flex-1 text-[11px] font-data-mono uppercase text-[color:var(--ds-text-muted)] truncate">
+            {recordSummary}
+          </div>
+          <button
+            type="button"
+            onClick={() => onConfirm(repeatOption, isFullDay, selectedUnit, isOvernight, isWorkingHours, effectiveQuantity, bookingComment)}
+            disabled={isBooking || conflictPreview.count > 0 || !isQuantityValid || (requiresUnitSelection && !selectedUnit)}
+            className="ds-btn ds-btn-primary shrink-0 px-4 py-2.5 text-[12px] font-semibold uppercase tracking-wide"
+            aria-busy={isBooking}
+          >
+            {isBooking ? <Loader2 className="animate-spin w-4 h-4"/> : conflictPreview.count > 0 ? "Resolve conflicts" : "Confirm booking"}
           </button>
         </div>
       </div>
